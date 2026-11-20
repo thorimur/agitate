@@ -1,0 +1,26 @@
+-- shake: keep-all
+import Fixture.A
+import Fixture.B
+import Fixture.C
+import Fixture.Downstream
+import Fixture.EqnRealize
+import Fixture.EqnUse
+import Fixture.Eqns
+import Fixture.Implied
+import Fixture.InstAttr
+import Fixture.InstDef
+import Fixture.InstUse
+import Fixture.Keep
+import Fixture.KeepAll
+import Fixture.Missing
+import Fixture.Nested
+import Fixture.Nested.Sub
+import Fixture.Notation
+import Fixture.NotationUse
+import Fixture.Pre
+import Fixture.Pre.Impl
+import Fixture.PrefixUse
+import Fixture.SimpAttr
+import Fixture.SimpUse
+import Fixture.Unused
+import Fixture.UsesDownstream

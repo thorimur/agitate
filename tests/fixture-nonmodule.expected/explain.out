@@ -1,0 +1,183 @@
+Fixture/A.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/B.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because `b` refers to `a`
+Fixture/C.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.B` required
+    because `c` refers to `b`
+Fixture/Downstream.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because `downstream` refers to `a`
+Fixture/Eqns.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/EqnRealize.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Eqns` required
+    because `f_one` refers to `f`
+Fixture/EqnUse.lean:
+  remove #[import Fixture.EqnRealize]
+  add #[import Fixture.Eqns]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Eqns` required
+    because `f_zero` refers to `f`
+Fixture/Implied.lean:
+  remove #[import Fixture.A]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.B` required
+    because `implied` refers to `b`
+Fixture/InstDef.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/InstAttr.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.InstDef` required
+    because of additional compile-time dependencies
+Fixture/InstUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.InstAttr` required
+    because `instUse` refers to `_indirect.natWidget`
+Fixture/Keep.lean:
+  remove #[import Fixture.A]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.C` required
+    because of `shake: keep`
+Fixture/KeepAll.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because `keepAll` refers to `a`
+  note: `import Fixture.C` required
+    because of `--only` / `shake: keep-all`
+Fixture/Missing.lean:
+  remove #[import Fixture.C]
+  add #[import Fixture.A]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because `missing` refers to `a`
+Fixture/Nested/Sub.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/Nested.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Nested.Sub` required
+    because of folder-nested import
+  note: `import Fixture.A` required
+    because `nested` refers to `a`
+Fixture/Notation.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because of additional compile-time dependencies
+Fixture/NotationUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Notation` required
+    because of additional compile-time dependencies
+Fixture/Pre/Impl.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/Pre.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Pre.Impl` required
+    because of folder-nested import
+Fixture/PrefixUse.lean:
+  remove #[import Fixture.Pre]
+  add #[import Fixture.Pre.Impl]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Pre.Impl` required
+    because `prefixUse` refers to `impl`
+Fixture/SimpAttr.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because of additional compile-time dependencies
+Fixture/SimpUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.SimpAttr` required
+    because of additional compile-time dependencies
+Fixture/Unused.lean:
+  remove #[import Fixture.C]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because `unused` refers to `a`
+Fixture/UsesDownstream.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.Downstream` required
+    because of `shake: keep-downstream`/extra rev use in `Fixture.Downstream`
+  note: `import Fixture.B` required
+    because `usesDownstream` refers to `b`
+Fixture.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.A` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.B` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.C` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Downstream` required
+    because of `shake: keep-downstream`/extra rev use in `Fixture.Downstream`
+  note: `import Fixture.EqnRealize` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.EqnUse` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Eqns` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Implied` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.InstAttr` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.InstDef` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.InstUse` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Keep` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.KeepAll` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Missing` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Nested` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Nested.Sub` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Notation` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.NotationUse` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Pre` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Pre.Impl` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.PrefixUse` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.SimpAttr` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.SimpUse` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.Unused` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.UsesDownstream` required
+    because of `shake: keep-downstream`/extra rev use in `Fixture.UsesDownstream`

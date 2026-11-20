@@ -1,0 +1,12 @@
+Fixture/EqnUse.lean:
+  remove #[import Fixture.EqnRealize]
+  add #[import Fixture.Eqns]
+Fixture/Implied.lean:
+  remove #[import Fixture.A]
+Fixture/Keep.lean:
+  remove #[import Fixture.A]
+Fixture/Missing.lean:
+  remove #[import Fixture.C]
+  add #[import Fixture.A]
+Fixture/Unused.lean:
+  remove #[import Fixture.C]

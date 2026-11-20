@@ -1,0 +1,20 @@
+name = "agitate"
+version = "0.1.0"
+defaultTargets = ["agitate", "agitate-nonmodule"]
+
+[[lean_lib]]
+name = "Agitate"
+
+[[lean_exe]]
+name = "agitate"
+root = "Main"
+
+# Differential checker: the olean index against a real environment (see AgitateCheck.lean).
+[[lean_exe]]
+name = "agitate-check"
+root = "AgitateCheck"
+
+# Import minimizer for code not using the module system (see Agitate/NonModule.lean).
+[[lean_exe]]
+name = "agitate-nonmodule"
+root = "NonModuleMain"
