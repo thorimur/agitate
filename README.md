@@ -20,12 +20,16 @@ measurements and open questions, and `TODO.md` for open work.
 
 ## Usage
 
-Build with `lake build`, then run from inside the project to be checked, so that `LEAN_PATH` and
-`LEAN_SRC_PATH` describe that workspace:
+Build with `lake build`, then run it in the root directory of the project to be checked:
 
 ```
-lake env /path/to/agitate/.lake/build/bin/agitate [OPTIONS] <MODULE>...
+/path/to/agitate/.lake/build/bin/agitate [OPTIONS] [MODULE...]
 ```
+
+agitate loads that Lake workspace itself and resolves modules as Lake's builds do: through the
+workspace's packages, root package first, then the toolchain. It does not use `LEAN_PATH` or
+`LEAN_SRC_PATH`, so running it under `lake env`, or `require`-ing agitate from the project, makes no
+difference. Without modules, the root package's default targets are checked, as `lake shake` does.
 
 The options match `lake shake`: `--keep-implied`, `--keep-prefix`, `--keep-public`, `--add-public`,
 `--gh-style`, `--explain`, `--trace`, `--fix` and `--only <MODULE>`. agitate adds:
@@ -48,7 +52,7 @@ date. The exit code is 1 if any edits are suggested (without `--fix`), and 0 oth
 ## Non-module code: `agitate-nonmodule`
 
 ```
-lake env /path/to/agitate/.lake/build/bin/agitate-nonmodule [OPTIONS] <MODULE>...
+/path/to/agitate/.lake/build/bin/agitate-nonmodule [OPTIONS] [MODULE...]
 ```
 
 Non-module imports re-export everything, so there is one kind of need and no `public`/`meta`:
@@ -99,7 +103,11 @@ same blind spot.
 * `scripts/test-batteries-nonmodule.sh <batteries-dir>` converts a copy of Batteries to non-module
   code (`demodularize.py` plus three documented patches), then checks that it builds, that the
   `--fix` result builds, and that a second run suggests nothing.
-* `lake env .lake/build/bin/agitate-check <MODULE>...` compares every index query with core's answer
+* `scripts/test-require.sh` builds a scratch project that `require`s agitate and has its own
+  `Main` executable root, and checks that agitate analyses the project's `Main`, both run directly
+  and under `lake env`. Before modules were resolved through the workspace, agitate's own `Main`
+  shadowed it.
+* `.lake/build/bin/agitate-check <MODULE>...` (run in the workspace) compares every index query with core's answer
   on an environment loaded the way `lake shake` loads it, for every imported constant.
 
 ## License

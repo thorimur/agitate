@@ -148,7 +148,8 @@ def headerHasMarker (h : ParsedHeader) (marker : String) : Bool :=
   (ictx.fileMap.source.extract ictx.fileMap.source.startPos endPos).contains marker
 
 /-- Analyze and report on module `i`; the single-kind version of `Agitate.Shake.visitModule`. -/
-def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath) (i : ModuleIdx) (needs : Bitset)
+def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePath)) (i : ModuleIdx)
+    (needs : Bitset)
     (header : ParsedHeader) (args : Args) : StateT State IO Unit := do
   let ix := (← get).ix
   let modName := ix.modName i
@@ -275,7 +276,7 @@ def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath) (i : ModuleIdx)
   modify fun s => { s with edits := toRemove.foldl (init := s.edits) (·.remove modName ·) }
 
   if !toAdd.isEmpty || !toRemove.isEmpty || args.explain then
-    if let some path ← srcSearchPath.findModuleWithExt "lean" modName then
+    if let some path ← source? modName then
       println! "{path}:"
     else
       println! "{modName}:"
@@ -330,10 +331,10 @@ def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath) (i : ModuleIdx)
         explainOne j
 
 /-- Run the analysis. Assumes Lean's search path has been configured. -/
-public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := do
+public def run (args : Args) (r : Resolver) : IO UInt32 := do
   let timed {α} := args.timed (α := α)
   let pkgs := args.mods.map (·.getRoot)
-  let modules ← timed "readModules" <| readModules args.mods (allowNonModule := true)
+  let modules ← timed "readModules" <| readModules r.olean args.mods (allowNonModule := true)
   let ix ← timed "Index.build" <| Index.build modules Reserved.extNames
   let s ← timed "initState (transDeps)" <| IO.lazyPure fun _ => initState ix args
   if args.listIndirectKinds then
@@ -347,7 +348,7 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
     else Task.spawn fun _ => calcNeeds s i
   if args.profile then
     timed "calcNeeds (selected modules, parallel)" <| needs.forM fun t => discard <| IO.wait t
-  let headers ← parseHeaders pkgs srcSearchPath ix.modNames
+  let headers ← parseHeaders pkgs r.source? ix.modNames
 
   if args.fix then
     println! "The following changes will be made automatically:"
@@ -355,7 +356,7 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
   let t0 ← IO.monoNanosNow
   for i in [0:ix.size], t in needs, header in headers do
     match header.get with
-    | .ok h => visitModule pkgs srcSearchPath i t.get h args
+    | .ok h => visitModule pkgs r.source? i t.get h args
     | .error e => println! e.toString
   if args.profile then
     IO.eprintln s!"[profile] visitModule loop (sequential): {((← IO.monoNanosNow) - t0) / 1000000} ms"

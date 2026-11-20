@@ -16,13 +16,10 @@
   It takes hours of machine time, so ask Thomas before running it.
 * Report the two reserved-name quirks upstream, and possibly the reserved-reference redirect.
   Deferred: Thomas does not want anything reported for now.
-* Resolve modules through the loaded Lake workspace (root package first) instead of
-  `LEAN_PATH`/`LEAN_SRC_PATH` (Thomas; DESIGN.md "Module-name shadowing across packages"). This also
-  gives the default target roots when no module is given.
 * `agitate-nonmodule`: test on a real non-module project once one on `v4.33.1` is at hand (so far
   only the fixture and a converted Batteries); time it on something Mathlib-sized.
-* CLI: default to the workspace's default target roots when no module is given (as `lake shake`
-  does), and decide whether to port the `--force` up-to-date check.
+* CLI: decide whether to offer `lake shake`'s up-to-date check as an option (the default trusts
+  the oleans, as Thomas wants).
 * Later: per-module needs cache keyed by olean hash (incremental runs). `resolveRef` is a pure
   function of the referenced name and the index, which makes this straightforward apart from the
   `transDeps` filter on indirect uses.

@@ -8,6 +8,8 @@
 * After changes to shared code (`Agitate/{Args,Bitset,Header,Index,Refs,Reserved}.lean`) or to
   `Agitate/NonModule.lean`, run `scripts/test-fixture-nonmodule.sh` and
   `scripts/test-batteries-nonmodule.sh <mathlib4>/.lake/packages/batteries`.
+* After changes to module resolution (`Agitate/Workspace.lean`, `Agitate/Args.lean`), also run
+  `scripts/test-require.sh`.
 * After any change to the analysis, run `scripts/test-fixture.sh`, `scripts/compare-core.sh` and
   `scripts/compare.sh` on Batteries; both must report IDENTICAL for the `--compat` run. Every new deviation from `lake shake` must be
   switched off by `--compat`. After changes to
@@ -43,7 +45,8 @@
 * Reserved-name predicates come from `builtin_initialize`; they are registered only because the
   emitted `main` calls `lean_initialize()` (all of `Lean`). Keep `Main` using the Lean API.
 * `lake shake`'s `augmentedLeanSrcPath` does not include the toolchain's `src/lean`; set
-  `LEAN_SRC_PATH` explicitly when shaking core (the compare script does).
+  `LEAN_SRC_PATH` explicitly when running `lake shake` on core (the compare script does). agitate
+  itself never reads `LEAN_PATH`/`LEAN_SRC_PATH`: it resolves modules through the Lake workspace.
 * The Bash tool's shell is zsh: unquoted `$flags` is not word-split (use `${=flags}`), and
   `2>&1 >/dev/null` behaves differently from bash (wrap the command in a subshell).
 * `x matches p` inside a `match` arm swallows the following arms; parenthesise it.

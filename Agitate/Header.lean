@@ -65,11 +65,11 @@ def parseHeaderFromString (text path : String) :
 Returns `(path, inputCtx, imports, endPos)` where `imports` is the `Lean.Parser.Module.import` list
 and `endPos` is the position of the end of the header.
 -/
-def parseHeader (srcSearchPath : SearchPath) (mod : Name) :
+def parseHeader (source? : Name → IO (Option System.FilePath)) (mod : Name) :
     IO (System.FilePath × (ictx : Parser.InputContext) ×
       TSyntax ``Parser.Module.header × String.Pos ictx.fileMap.source) := do
   -- Parse the input file
-  let some path ← srcSearchPath.findModuleWithExt "lean" mod
+  let some path ← source? mod
     | throw <| .userError s!"error: failed to find source file for {mod}"
   let text ← IO.FS.readFile path
   parseHeaderFromString text path.toString
@@ -135,12 +135,13 @@ def applyEdits (edits : Edits) (modNames : Array Name)
   return count
 
 /-- Parses the headers of the modules selected by `pkgs`, in parallel (others get a dummy). -/
-def parseHeaders (pkgs : Array Name) (srcSearchPath : SearchPath) (modNames : Array Name) :
+def parseHeaders (pkgs : Array Name) (source? : Name → IO (Option System.FilePath))
+    (modNames : Array Name) :
     BaseIO (Array (Task (Except IO.Error ParsedHeader))) :=
   modNames.mapM fun mod =>
     if !pkgs.any (·.isPrefixOf mod) then
       pure <| Task.pure <| .ok ⟨default, default, default, default⟩
     else
-      BaseIO.asTask (parseHeader srcSearchPath mod |>.toBaseIO)
+      BaseIO.asTask (parseHeader source? mod |>.toBaseIO)
 
 end Agitate

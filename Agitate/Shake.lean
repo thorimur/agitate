@@ -322,12 +322,12 @@ def initState (ix : Index) (args : Args) : State := Id.run do
 /-- Analyze and report issues from module `i`. Arguments:
 
 * `pkgs`: the first components of the input modules
-* `srcSearchPath`: Used to find the path for error reporting purposes
+* `source?`: the module's source file (`Resolver.source?`), for reporting and `--gh-style`
 * `i`: the module index
 * `needs`: the module's calculated needs
 * `addOnly`: if true, only add missing imports, do not remove unused ones
 -/
-def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath)
+def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePath))
     (i : Nat) (needs : Needs) (headerStx : TSyntax ``Parser.Module.header) (args : Args)
     (addOnly := false) : StateT State IO Unit := do
   let modName := (← get).modNames[i]!
@@ -526,7 +526,7 @@ def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath)
       edits.remove modName imp }
 
   if !toAdd.isEmpty || !toRemove.isEmpty || args.explain then
-    if let some path ← srcSearchPath.findModuleWithExt "lean" s.modNames[i]! then
+    if let some path ← source? s.modNames[i]! then
       println! "{path}:"
     else
       println! "{s.modNames[i]!}:"
@@ -536,7 +536,7 @@ def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath)
 
   if args.githubStyle then
     try
-      let ⟨path, inputCtx, stx, endHeader⟩ ← parseHeader srcSearchPath s.modNames[i]!
+      let ⟨path, inputCtx, stx, endHeader⟩ ← parseHeader source? s.modNames[i]!
       let (_, _, imports) := decodeHeader stx
       for stx in imports do
         if toRemove.any fun imp => imp == decodeImport stx then
@@ -597,7 +597,7 @@ Run the shake analysis with the given arguments.
 
 Assumes Lean's search path has already been properly configured.
 -/
-public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := do
+public def run (args : Args) (r : Resolver) : IO UInt32 := do
   -- `--profile`: time each phase; in this mode phases are forced one after another so that the
   -- parallel `needs` computation is not hidden behind the sequential visit loop.
   let timed {α} := args.timed (α := α)
@@ -608,7 +608,7 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
   let pkgs := mods.map (·.getRoot)
 
   -- Load all the modules (`agitate`: straight from their oleans, see `Agitate.Index`)
-  let modules ← timed "readModules (.olean, .server, .private)" <| readModules mods
+  let modules ← timed "readModules (.olean, .server, .private)" <| readModules r.olean mods
   let ix ← timed "Index.build (constant maps, extension tables)" <| Index.build modules Reserved.extNames
   let s ← timed "initState (transDeps)" <| IO.lazyPure fun _ => initState ix args
   if args.profile then
@@ -632,7 +632,7 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
     timed "calcNeeds (selected modules, parallel)" <| needs.forM fun t => discard <| IO.wait t
 
   -- Parse headers in parallel
-  let headers ← parseHeaders pkgs srcSearchPath s.modNames
+  let headers ← parseHeaders pkgs r.source? s.modNames
   if args.profile then
     timed "parseHeader (selected modules, parallel)" <| headers.forM fun t => discard <| IO.wait t
 
@@ -644,7 +644,7 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
   for i in [0:s.ix.size], t in needs, header in headers do
     match header.get with
     | .ok ⟨_, _, stx, _⟩ =>
-      visitModule pkgs srcSearchPath i t.get stx args
+      visitModule pkgs r.source? i t.get stx args
     | .error e =>
       println! e.toString
   if args.profile then

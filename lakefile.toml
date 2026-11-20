@@ -9,13 +9,17 @@ name = "Agitate"
 [[lean_exe]]
 name = "agitate"
 root = "Main"
+# loading a `lakefile.lean` evaluates it in-process
+supportInterpreter = true
 
 # Differential checker: the olean index against a real environment (see AgitateCheck.lean).
 [[lean_exe]]
 name = "agitate-check"
 root = "AgitateCheck"
+supportInterpreter = true
 
 # Import minimizer for code not using the module system (see Agitate/NonModule.lean).
 [[lean_exe]]
 name = "agitate-nonmodule"
 root = "NonModuleMain"
+supportInterpreter = true

@@ -191,8 +191,9 @@ other two, so they are read together; regions are never freed (cf. `leakEnv := t
 olean is a single part holding everything (written at the `.private` level); with `allowNonModule`
 it serves as both views, otherwise it is rejected as `lake shake` does.
 -/
-private def readParts (mod : Name) (allowNonModule : Bool) : IO Module := do
-  let mFile ← findOLean mod
+private def readParts (olean : Name → IO System.FilePath) (mod : Name) (allowNonModule : Bool) :
+    IO Module := do
+  let mFile ← olean mod
   unless (← mFile.pathExists) do
     throw <| IO.userError s!"object file '{mFile}' of module {mod} does not exist"
   let pFile := OLeanLevel.private.adjustFileName mFile
@@ -232,7 +233,8 @@ private def throwAlreadyImported (modules : Array Module) (const2ModIdx : Std.Ha
 
 /-- Reads all modules imported (transitively) by `roots`, in `ModuleIdx` order, using the current
 `searchPathRef`. -/
-public def readModules (roots : Array Name) (allowNonModule := false) : IO (Array Module) := do
+public def readModules (olean : Name → IO System.FilePath) (roots : Array Name)
+    (allowNonModule := false) : IO (Array Module) := do
   -- Read level by level over the import DAG, each level in parallel; the order is fixed afterwards.
   let mut loaded : Std.HashMap Name Module := {}
   let mut seen : Std.HashSet Name := {}
@@ -242,7 +244,7 @@ public def readModules (roots : Array Name) (allowNonModule := false) : IO (Arra
       seen := seen.insert r
       frontier := frontier.push r
   while !frontier.isEmpty do
-    let tasks ← frontier.mapM fun mod => IO.asTask (readParts mod allowNonModule)
+    let tasks ← frontier.mapM fun mod => IO.asTask (readParts olean mod allowNonModule)
     let mut next := #[]
     for mod in frontier, t in tasks do
       let m ← IO.ofExcept t.get
@@ -317,7 +319,8 @@ public def printIndirectKinds (ix : Index) : IO Unit := do
     IO.println s!"{kind}\t{n} uses\t{ms.size} modules"
 
 /-- `readModules` followed by `Index.build`. -/
-public def Index.load (roots : Array Name) (extraExts : Array Name := #[]) : IO Index := do
-  Index.build (← readModules roots) extraExts
+public def Index.load (olean : Name → IO System.FilePath) (roots : Array Name)
+    (extraExts : Array Name := #[]) : IO Index := do
+  Index.build (← readModules olean roots) extraExts
 
 end Agitate

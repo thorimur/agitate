@@ -48,18 +48,27 @@ def main (args : List String) : IO UInt32 := do
   if mods.isEmpty then
     IO.eprintln "usage: agitate-check <MODULE>..."
     return 2
-  initSearchPath (← findSysroot)
+  -- Both sides resolve modules through the Lake workspace, never through `LEAN_PATH`: the index
+  -- via the resolver, and the reference environment via explicit import artifacts for every module
+  -- of the closure.
+  let res ← Resolver.load
+  let ix ← Index.load res.olean mods Reserved.extNames
+  let mut arts : NameMap ImportArtifacts := {}
+  for mod in ix.modNames do
+    let olean ← res.olean mod
+    let parts := #[olean, OLeanLevel.server.adjustFileName olean, OLeanLevel.private.adjustFileName olean]
+    let irs ← #[olean.withExtension "ir.sig", olean.withExtension "ir"].filterM (·.pathExists)
+    arts := arts.insert mod (.ofArrays #[parts, irs])
 
   -- the reference: shake's environment
   let imps := mods.map ({ module := · })
-  let (_, s) ← (importModulesCore imps (isExported := true)).run
+  let (_, s) ← (importModulesCore imps (isExported := true) (arts := arts)).run
   let env ← finalizeImport s.markAllExported (isModule := true) imps {} (leakEnv := true) (loadExts := false)
   let is := indirectModUseExt.toEnvExtension.getState env
   let st ← indirectModUseExt.addImportedFn is.importedEntries { env := env, opts := {} }
   let env := indirectModUseExt.toEnvExtension.setState (asyncMode := .sync) env { is with state := st }
   let envFixed ← initMatcherExt env
 
-  let ix ← Index.load mods Reserved.extNames
   let mut r : Report := {}
 
   let numPreds := (← reservedNamePredicatesRef.get).size

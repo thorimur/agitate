@@ -7,6 +7,7 @@ Authors: Thomas Murrills
 module
 
 public import Agitate.Args
+public import Agitate.Workspace
 public import Agitate.Bitset
 public import Agitate.Header
 public import Agitate.Index

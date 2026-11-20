@@ -26,6 +26,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Count `@[implemented_by]` targets as needs, with the declaration's visibility in module mode; `--ignore-implemented-by` restores upstream. | Thomas | implemented |
 | `agitate` skips source imports missing from the oleans' closure (stale oleans) instead of panicking. | Thomas | implemented |
 | License the repository under Apache 2.0, with copyright headers; files copied or ported from Lean keep their original notices and describe their changes. | Thomas | done |
+| Resolve modules through the Lake workspace (root package first, then the toolchain), never `LEAN_PATH`/`LEAN_SRC_PATH`; default to the root's default target roots. | Thomas | implemented |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
 | Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
@@ -400,11 +401,32 @@ This is not specific to agitate: any required package with a module of the same 
 executable root called `Main` is common) shadows the project's module for every tool that resolves
 modules by name.
 
-**Decision (Thomas):** do not use `LEAN_PATH`/`LEAN_SRC_PATH` at all. Load the Lake workspace and
-resolve modules through it, starting from the root package, as Lake's own builds do. In progress.
+**Decision (Thomas), implemented:** do not use `LEAN_PATH`/`LEAN_SRC_PATH` at all. Load the Lake
+workspace and resolve modules through it, starting from the root package, as Lake's own builds do.
+`Agitate/Workspace.lean`:
+
+* **Loading.** `Resolver.load` loads the workspace in the working directory with `loadWorkspace`
+  (no dependency updates). Lean is the installation the project's `lean` resolves to; Lake is the
+  one shipped with it (`LakeInstall.ofLean`). `findLakeInstall?` would look next to agitate's own
+  executable. Loading a `lakefile.lean` evaluates it in-process, so the executables use
+  `supportInterpreter`. On Mathlib, loading takes 0.6–0.9 s.
+* **Resolution.** `Workspace.findTargetModule?` covers library modules and executable roots, root
+  package first (`Lake/Config/Workspace.lean:287-288`). Otherwise the toolchain's `lib/lean` and
+  `src/lean` (and `src/lean/lake`) serve `Init`, `Std`, `Lean` and `Lake`. Oleans, sources for
+  headers and `--fix`, and reported paths all come from here. Reported paths are unchanged, which
+  the `--compat` comparisons on core, Batteries and Mathlib confirm.
+* **Default roots.** Without modules on the command line, the root package's default target roots
+  are checked (`Workspace.defaultTargetRoots`), as `lake shake` does.
+* **Checker.** `agitate-check` passes explicit `ImportArtifacts` for every module of the closure to
+  `importModulesCore`, so its reference environment does not use a search path either.
+* **Test.** `scripts/test-require.sh` builds a project that `require`s agitate and has its own
+  `Main`. Agitate must analyse the project's `Main`, both directly and under `lake env`. The
+  pre-change binary fails it: without `LEAN_PATH` it finds no `Main`; under `lake env` it reads
+  agitate's own non-module `Main.olean`.
+
 The options considered before that decision:
 
-1. Usage: do not `require` agitate; run it with `lake env <path>/agitate…` as the README says.
+1. Usage: do not `require` agitate; run it with `lake env <path>/agitate…`.
 2. Make agitate safe to `require`: namespaced executable roots (e.g. `Agitate.Main`), and delete
    the stale oleans.
 3. Detect the hazard generally. If a selected module's olean or source resolves in more than one

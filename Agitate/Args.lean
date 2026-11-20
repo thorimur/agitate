@@ -13,6 +13,7 @@ Command-line arguments and the shared CLI driver of `agitate` (module system) an
 module
 
 public import Lean.Util.Path
+public import Agitate.Workspace
 
 public section
 
@@ -100,10 +101,11 @@ def usage (tool : Tool) : String :=
   s!"{header}
 
 USAGE:
-  lake env {tool.exeName} [OPTIONS] <MODULE>...
+  {tool.exeName} [OPTIONS] [MODULE...]
 
-Run through `lake env` (or `lake exe`) so that LEAN_PATH and LEAN_SRC_PATH point at the
-workspace.
+Run in the workspace's root directory. Modules are resolved through the Lake workspace (its
+packages, root first, then the toolchain), never through LEAN_PATH; without MODULEs, the root
+package's default targets are checked.
 
 OPTIONS:
   --keep-implied   keep imports implied by other imports
@@ -173,22 +175,23 @@ def Args.timed {α} (args : Args) (phase : String) (act : IO α) : IO α := do
   return a
 
 /--
-The `main` of both tools: parses `argv` and runs `run` with the same search paths as `lake shake`
-(`LEAN_PATH` via `initSearchPath`, and `LEAN_SRC_PATH`).
+The `main` of both tools: parses `argv`, loads the Lake workspace in the working directory, and runs
+`run`. Modules are resolved through the workspace (`Resolver`), never through `LEAN_PATH` or
+`LEAN_SRC_PATH`. Without modules on the command line, the root package's default target roots are
+checked, as `lake shake` does.
 -/
-def cliMain (tool : Tool) (run : Args → SearchPath → IO UInt32) (argv : List String) : IO UInt32 := do
+def cliMain (tool : Tool) (run : Args → Resolver → IO UInt32) (argv : List String) : IO UInt32 := do
   if argv.contains "--help" || argv.contains "-h" then
     IO.println (usage tool)
     return 0
   let args ← match parseArgs tool {} argv with
     | .ok args => pure args
     | .error e => IO.eprintln s!"error: {e}\n\n{usage tool}"; return 2
+  let r ← args.timed "loading the Lake workspace" Resolver.load
+  let args := if args.mods.isEmpty then { args with mods := r.defaultRoots } else args
   if args.mods.isEmpty then
-    -- TODO: default to the workspace's default target roots, as `lake shake` does.
-    IO.eprintln s!"error: no modules specified\n\n{usage tool}"
+    IO.eprintln s!"error: no modules specified and there are no applicable default targets\n\n{usage tool}"
     return 2
-  initSearchPath (← findSysroot)
-  let srcSearchPath := (← IO.getEnv "LEAN_SRC_PATH").map System.SearchPath.parse |>.getD []
-  run args srcSearchPath
+  run args r
 
 end Agitate
