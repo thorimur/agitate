@@ -1,6 +1,6 @@
 # `agitate`: to `shake` faster
 
-⚠️ This is a small, temporary, **vibe-coded** project to make `lake shake` much faster by avoiding the environment construction.
+⚠️ This is a small, temporary, **vibe-coded** project to make `lake shake` much faster by avoiding the environment construction and reading directly from oleans.
 
 This part was written by me (Thomas R. Murrills). The rest is Claude.
 
