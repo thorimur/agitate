@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Thomas Murrills. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
 # Tests of `agitate-nonmodule` on `tests/fixture-nonmodule` (see its modules' comments). There is no
 # oracle (`lake shake` refuses non-module code), so:
 # 1. golden outputs for several flag sets (`tests/fixture-nonmodule.expected/`; `UPDATE=1` rewrites

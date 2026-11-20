@@ -1,24 +1,24 @@
 Fixture/EqnUse.lean:
   remove #[import Fixture.EqnRealize]
-Fixture/EqnUse.lean:3:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
-Fixture/EqnUse.lean:3:1: warning: add #[import Fixture.Eqns] instead
+Fixture/EqnUse.lean:8:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
+Fixture/EqnUse.lean:8:1: warning: add #[import Fixture.Eqns] instead
   add #[import Fixture.Eqns]
 Fixture/Implied.lean:
   remove #[import Fixture.A]
-Fixture/Implied.lean:3:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
+Fixture/Implied.lean:8:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
 Fixture/Keep.lean:
   remove #[import Fixture.A]
-Fixture/Keep.lean:1:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
+Fixture/Keep.lean:6:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
 Fixture/Missing.lean:
   remove #[import Fixture.C]
-Fixture/Missing.lean:2:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
-Fixture/Missing.lean:2:1: warning: add #[import Fixture.A] instead
+Fixture/Missing.lean:7:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
+Fixture/Missing.lean:7:1: warning: add #[import Fixture.A] instead
   add #[import Fixture.A]
 Fixture/PrefixUse.lean:
   remove #[import Fixture.Pre]
-Fixture/PrefixUse.lean:2:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
-Fixture/PrefixUse.lean:2:1: warning: add #[import Fixture.Pre.Impl] instead
+Fixture/PrefixUse.lean:7:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
+Fixture/PrefixUse.lean:7:1: warning: add #[import Fixture.Pre.Impl] instead
   add #[import Fixture.Pre.Impl]
 Fixture/Unused.lean:
   remove #[import Fixture.C]
-Fixture/Unused.lean:3:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)
+Fixture/Unused.lean:8:1: warning: unused import (use `agitate-nonmodule --fix` to fix this)

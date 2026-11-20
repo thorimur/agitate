@@ -25,6 +25,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Dependencies invisible in oleans (e.g. `open` of a namespace) are handled with `-- shake: keep`, not code. | Thomas | settled |
 | Count `@[implemented_by]` targets as needs, with the declaration's visibility in module mode; `--ignore-implemented-by` restores upstream. | Thomas | implemented |
 | `agitate` skips source imports missing from the oleans' closure (stale oleans) instead of panicking. | Thomas | implemented |
+| License the repository under Apache 2.0, with copyright headers; files copied or ported from Lean keep their original notices and describe their changes. | Thomas | done |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
 | Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Thomas Murrills. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
 """Convert a copy of a module-system Lean library to non-module code (test data for
 `agitate-nonmodule`).
 

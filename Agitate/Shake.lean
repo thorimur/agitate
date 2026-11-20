@@ -1,7 +1,8 @@
 /-
 Copyright (c) 2023 Mario Carneiro. All rights reserved.
+Copyright (c) 2026 Thomas Murrills. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
-Authors: Mario Carneiro, Sebastian Ullrich
+Authors: Mario Carneiro, Sebastian Ullrich, Thomas Murrills
 
 Copied from `src/lake/Lake/CLI/Shake.lean` at Lean `v4.33.1` (commit 819816b2e0a3), then modified
 for `agitate`, with each change marked `agitate` in place:

@@ -1,4 +1,12 @@
 /-
+Copyright (c) 2019-2021 Microsoft Corporation. All rights reserved.
+Copyright (c) 2024-2025 Lean FRO, LLC. All rights reserved.
+Copyright (c) 2026 Thomas Murrills. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Leonardo de Moura, Joachim Breitner, Henrik Böving, Thomas Murrills
+-/
+
+/-
 Reserved names, computed from the olean index.
 
 `lake shake` ignores references to reserved names, deciding them with `isReservedName env`, i.e. by

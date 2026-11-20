@@ -101,3 +101,9 @@ same blind spot.
   `--fix` result builds, and that a second run suggests nothing.
 * `lake env .lake/build/bin/agitate-check <MODULE>...` compares every index query with core's answer
   on an environment loaded the way `lake shake` loads it, for every imported constant.
+
+## License
+
+Apache 2.0; see `LICENSE`. Parts are copied or ported from Lean 4 (also Apache 2.0): the analysis
+from Lake's `shake` (`Lake/CLI/Shake.lean`), and the olean index and reserved-name predicates from
+Lean core. Those files keep the original copyright notices and describe their changes.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Thomas Murrills. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
 # Differential and `--fix` tests on the fixture workspace `tests/fixture` (see its modules' comments
 # for what each one exercises). Works on fresh copies, so the fixture in the repo is never modified.
 #

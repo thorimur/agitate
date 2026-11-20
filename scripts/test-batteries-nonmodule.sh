@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Thomas Murrills. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
 # Real-world test of `agitate-nonmodule`: a non-module conversion of Batteries.
 #
 #   scripts/test-batteries-nonmodule.sh <batteries-dir>

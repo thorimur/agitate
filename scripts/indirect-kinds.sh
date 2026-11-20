@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Thomas Murrills. All rights reserved.
+# Released under Apache 2.0 license as described in the file LICENSE.
 # For each kind of indirect module use in the closure of the given modules, measure how much the
 # suggestions change when that kind is ignored (`--ignore-indirect-kind`), relative to the default.
 #

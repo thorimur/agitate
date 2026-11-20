@@ -1,9 +1,20 @@
 /-
+Copyright (c) 2019 Microsoft Corporation. All rights reserved.
+Copyright (c) 2025 Lean FRO. All rights reserved.
+Copyright (c) 2026 Thomas Murrills. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Leonardo de Moura, Sebastian Ullrich, Thomas Murrills
+-/
+
+/-
 The olean index: everything `agitate` needs about the imported modules, read directly from each
 module's `.olean` parts with `readModuleDataParts`, without `importModules`/`finalizeImport`.
 
 Where this mirrors core behaviour, the core definition (Lean `v4.33.1`) is named in the docstring.
-That is the contract the differential checker (`agitate-check`) verifies.
+That is the contract the differential checker (`agitate-check`) verifies. Those parts are adapted
+from Lean 4 core at `v4.33.1` (`Lean/Environment.lean`, `Lean/EnvExtension.lean`,
+`Lean/Attributes.lean`, `Lean/Compiler/MetaAttr.lean`, `Lean/ExtraModUses.lean`): they read the
+imported data directly instead of through an `Environment`.
 -/
 module
 

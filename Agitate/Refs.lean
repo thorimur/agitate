@@ -1,4 +1,11 @@
 /-
+Copyright (c) 2023 Mario Carneiro. All rights reserved.
+Copyright (c) 2026 Thomas Murrills. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Authors: Mario Carneiro, Sebastian Ullrich, Thomas Murrills
+-/
+
+/-
 Resolving the constants that a module's terms refer to, shared by `agitate` and
 `agitate-nonmodule`. Adapted from upstream `Lake/CLI/Shake.lean` (Lean `v4.33.1`).
 -/

@@ -15,6 +15,9 @@
   once those pass (Thomas's order: Batteries first, Mathlib when everything works).
 * Commit regularly (Thomas): after each completed and tested change, with its record updates in
   the same commit.
+* Every new source file (Lean, scripts, fixtures) gets the Apache 2.0 copyright header. Code
+  copied or ported from Lean keeps the original copyright lines and authors, adds Thomas's, and
+  says what changed.
 * Back performance claims with `--profile` numbers or a `sample` profile, not reasoning alone.
 
 ## Benchmark setup
