@@ -13,6 +13,8 @@
   switched off by `--compat`. After changes to
   `Agitate/Index.lean` or `Agitate/Reserved.lean`, also run `agitate-check`. Move to Mathlib only
   once those pass (Thomas's order: Batteries first, Mathlib when everything works).
+* Commit regularly (Thomas): after each completed and tested change, with its record updates in
+  the same commit.
 * Back performance claims with `--profile` numbers or a `sample` profile, not reasoning alone.
 
 ## Benchmark setup

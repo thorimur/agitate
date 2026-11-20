@@ -23,6 +23,8 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Non-module analysis: one kind of need, plain reachability, a single-kind rewrite of the visit step rather than encoding plain imports as `public import`s. | Claude | implemented |
 | In non-module files, `shake: keep-all`/`keep-downstream` may appear in any header comment (there is no `module` token). | Claude | implemented |
 | Dependencies invisible in oleans (e.g. `open` of a namespace) are handled with `-- shake: keep`, not code. | Thomas | settled |
+| Count `@[implemented_by]` targets as needs, with the declaration's visibility in module mode; `--ignore-implemented-by` restores upstream. | Thomas | implemented |
+| `agitate` skips source imports missing from the oleans' closure (stale oleans) instead of panicking. | Thomas | implemented |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
 | Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
@@ -352,9 +354,19 @@ Shared by both tools and by `lake shake`:
 * **Constants named only in attribute arguments.** For example `@[implemented_by gImpl] def f`:
   nothing records `gImpl`. On scratch copies of both fixtures, agitate-nonmodule and `lake shake`
   both suggest removing the import that provides `gImpl`; after `--fix` the build fails with
-  "Unknown constant `gImpl`". Proposed (Claude, not yet decided): count `implemented_by` targets
-  as needs, read exactly from the attribute's entries in the index. Rarer attributes would get
-  annotations.
+  "Unknown constant `gImpl`".
+  * **Fixed for `implemented_by` (Thomas).** Both tools count the target as a need of the
+    declaring module, read exactly from the attribute's entries (`Index.implementedBy?`,
+    `implementedByTarget?`). `--ignore-implemented-by` (included in `--compat`) restores upstream
+    behaviour.
+  * **Import kind in module mode.** An experiment settles it. A *private* import of the
+    implementation lets the declaring module compile, but a downstream module compiling a call of
+    `f` fails with "Unknown constant `gImpl`". So the need takes the declaration's visibility:
+    public for an exported declaration. This is the `IbDecl`/`IbUse` case in both fixtures.
+  * **Impact.** None on core, Batteries or Mathlib (their targets are referenced anyway or live in
+    the same module). It matters for code like the fixture's, where nothing else mentions the
+    target.
+  * **Rarer attributes** with constant arguments get annotations.
 
 Within the module system, the compiler records IR-level uses (`checkTemplateVisibility`,
 `Lean/Compiler/LCNF/Visibility.lean:132`, module-only). Non-module code does not need this, because
@@ -365,7 +377,38 @@ non-module code too, since none of those recording sites is gated on the module 
 **Freshness.** Neither tool checks that oleans are up to date; both trust them (`--force` is
 accepted and ignored). Source headers are still read, for `shake:` markers and `--fix`. On a source
 import missing from the olean's closure, agitate-nonmodule skips it, while `agitate` panics in
-upstream's `getModuleIdx? … |>.get!` and continues with a wrong module index (TODO).
+upstream's `getModuleIdx? … |>.get!` and continues with a wrong module index. Now `agitate` skips
+it too (Thomas). Upstream never reaches this without `--force`, because it refuses stale oleans,
+so this needs no `--compat` switch. `scripts/test-fixture.sh` checks it with an import of a module
+outside the closure, where `lake shake --force` panics with `Option.get!`.
+
+**Module-name shadowing across packages (open, Thomas to decide).** A session that `require`d
+agitate from another project got agitate's `Main` instead of the project's own `Main`. The causes:
+
+* `ws.packages` lists the root package first, then dependencies in `require` order
+  (`Lake/Config/Workspace.lean:50-54`). `leanPath`/`leanSrcPath` fold `::` over it, which
+  reverses it (`:356-366`). So every dependency's build directory and source directories come
+  *before* the project's own on `LEAN_PATH`/`LEAN_SRC_PATH`.
+* Module names are global. agitate's executable roots (`Main`, `NonModuleMain`) are built into its
+  library directory (`.lake/build/lib/lean/Main.olean`). Its `lean_lib`'s source directory is the
+  package root, so `Main.lean` is a source too.
+* Hence, under `require agitate`, `Main` resolved to agitate's olean (it clashed with the project's
+  declarations), and `--fix` would have edited agitate's `Main.lean`.
+
+This is not specific to agitate: any required package with a module of the same name (an
+executable root called `Main` is common) shadows the project's module for every tool that resolves
+modules by name.
+
+**Decision (Thomas):** do not use `LEAN_PATH`/`LEAN_SRC_PATH` at all. Load the Lake workspace and
+resolve modules through it, starting from the root package, as Lake's own builds do. In progress.
+The options considered before that decision:
+
+1. Usage: do not `require` agitate; run it with `lake env <path>/agitate…` as the README says.
+2. Make agitate safe to `require`: namespaced executable roots (e.g. `Agitate.Main`), and delete
+   the stale oleans.
+3. Detect the hazard generally. If a selected module's olean or source resolves in more than one
+   search-path entry, error out (or refuse `--fix`) rather than silently analysing or editing the
+   wrong one.
 
 ## Rejected / deferred
 

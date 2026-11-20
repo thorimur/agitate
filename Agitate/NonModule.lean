@@ -55,7 +55,8 @@ def initState (ix : Index) (args : Args) : State := Id.run do
   let ignore kind := args.ignoreIndirectKinds.contains "*" || args.ignoreIndirectKinds.contains kind
   let refs : RefCtx := { ix, reserved := { ix, upstream := args.upstreamReserved },
                          reservedRefsToBase := args.reservedRefsToBase,
-                         indirectModUses := ix.indirectModUsesExcept ignore }
+                         indirectModUses := ix.indirectModUsesExcept ignore,
+                         implementedByNeeds := args.implementedByNeeds }
   let mut transDeps : Array Bitset := #[]
   for i in 0...ix.size do
     let mut t : Bitset := ∅
@@ -74,6 +75,9 @@ def calcNeeds (s : State) (i : ModuleIdx) : Bitset := Id.run do
     acc := visitExpr ci.type acc
     if let some e := ci.value? (allowOpaque := true) then
       acc := visitExpr e acc
+    if let some (_, j, _) := implementedByTarget? s.refs ci.name then
+      if j != i then
+        acc := (acc.1.insert j, acc.2)
   let mut needs := acc.1
   for use in s.ix.getExtraModUses i do
     if let some j := s.ix.getModuleIdx? use.module then
@@ -103,6 +107,9 @@ def getExplanations (s : State) (i : ModuleIdx) : Std.HashMap ModuleIdx (Option 
     deps := visitExpr ci.name ci.type deps
     if let some e := ci.value? (allowOpaque := true) then
       deps := visitExpr ci.name e deps
+    if let some (g, j, _) := implementedByTarget? s.refs ci.name then
+      if j != i then
+        deps := add j ci.name g deps
   for use in s.ix.getExtraModUses i do
     if let some j := s.ix.getModuleIdx? use.module then
       if !deps.contains j then

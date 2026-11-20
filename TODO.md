@@ -16,10 +16,9 @@
   It takes hours of machine time, so ask Thomas before running it.
 * Report the two reserved-name quirks upstream, and possibly the reserved-reference redirect.
   Deferred: Thomas does not want anything reported for now.
-* Count `@[implemented_by]` targets as needs in both tools, and add the case to both fixtures
-  (proposed, awaiting Thomas; DESIGN.md "Known blind spots").
-* `agitate`: skip source imports missing from the olean's import closure instead of panicking in
-  `get!`, as agitate-nonmodule does (stale oleans; proposed, awaiting Thomas).
+* Resolve modules through the loaded Lake workspace (root package first) instead of
+  `LEAN_PATH`/`LEAN_SRC_PATH` (Thomas; DESIGN.md "Module-name shadowing across packages"). This also
+  gives the default target roots when no module is given.
 * `agitate-nonmodule`: test on a real non-module project once one on `v4.33.1` is at hand (so far
   only the fixture and a converted Batteries); time it on something Mathlib-sized.
 * CLI: default to the workspace's default target roots when no module is given (as `lake shake`

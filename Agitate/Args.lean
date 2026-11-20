@@ -43,6 +43,13 @@ structure Args where
   (`--upstream-indirect`) restores the upstream check (`agitate` addition, DESIGN.md).
   -/
   indirectViaPublic : Bool := true
+  /--
+  Count the target of `@[implemented_by g] def f` as needed by `f`'s module. Nothing records it, so
+  upstream removes the import providing `g`, and the `--fix` result fails to build. `false`
+  (`--ignore-implemented-by`) restores upstream behaviour (`agitate` addition, DESIGN.md
+  "Known blind spots").
+  -/
+  implementedByNeeds : Bool := true
   keepImplied : Bool := false
   keepPrefix : Bool := false
   keepPublic : Bool := false
@@ -81,7 +88,8 @@ def usage (tool : Tool) : String :=
                    count an indirect module use only if the module reaches the recording module
                    through an import of exactly the same kind, as `lake shake` does
   --compat         behave exactly like `lake shake`: `--upstream-reserved --ignore-reserved-refs
-                   --upstream-indirect` and no ignored indirect kinds (later options override)"
+                   --upstream-indirect --ignore-implemented-by` and no ignored indirect kinds
+                   (later options override)"
   s!"{header}
 
 USAGE:
@@ -105,6 +113,9 @@ OPTIONS:
   --ignore-reserved-refs
                    drop references to reserved names, as `lake shake` does, instead of counting
                    them as references to the declaration they are regenerated from
+  --ignore-implemented-by
+                   do not count the target of `@[implemented_by g] def f` as needed by `f`'s module,
+                   as `lake shake` does (its `--fix` result may then not build)
   --ignore-indirect-kind <KIND>
                    ignore indirect module uses recorded by attribute KIND (repeatable; `*` for all)
   --list-indirect-kinds
@@ -125,6 +136,7 @@ partial def parseArgs (tool : Tool) (args : Args) : List String → Except Strin
   | "--list-indirect-kinds" :: rest => parseArgs tool { args with listIndirectKinds := true } rest
   | "--upstream-reserved" :: rest => parseArgs tool { args with upstreamReserved := true } rest
   | "--ignore-reserved-refs" :: rest => parseArgs tool { args with reservedRefsToBase := false } rest
+  | "--ignore-implemented-by" :: rest => parseArgs tool { args with implementedByNeeds := false } rest
   | ["--ignore-indirect-kind"] => .error "missing argument to `--ignore-indirect-kind`"
   | "--ignore-indirect-kind" :: kind :: rest =>
     parseArgs tool { args with ignoreIndirectKinds := args.ignoreIndirectKinds.push kind } rest
@@ -138,7 +150,8 @@ partial def parseArgs (tool : Tool) (args : Args) : List String → Except Strin
     | .module, "--upstream-indirect" => parseArgs tool { args with indirectViaPublic := false } rest
     | .module, "--compat" =>
       parseArgs tool { args with upstreamReserved := true, reservedRefsToBase := false,
-                                 ignoreIndirectKinds := #[], indirectViaPublic := false } rest
+                                 ignoreIndirectKinds := #[], indirectViaPublic := false,
+                                 implementedByNeeds := false } rest
     | _, _ =>
       if arg.startsWith "-" then .error s!"unknown option `{arg}`"
       else parseArgs tool { args with mods := args.mods.push arg.toName } rest

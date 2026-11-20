@@ -10,6 +10,7 @@ module
 public import Lean.Environment
 public import Lean.ExtraModUses
 public import Lean.Meta.Match.MatcherInfo
+public import Lean.Compiler.ImplementedByAttr
 import all Lean.Environment          -- `subsumesInfo`
 import all Lean.Compiler.MetaAttr    -- `metaExt`, `declMetaExt`
 import all Lean.ExtraModUses         -- `extraModUses`, `isExtraRevModUseExt`
@@ -148,6 +149,10 @@ public def getParam? {α : Type} [Inhabited α] (attr : ParametricAttribute α) 
     entry?.map (·.2)
   | none => none
 
+/-- The `@[implemented_by]` target of `decl`, if any (`Compiler.getImplementedBy?`). -/
+public def implementedBy? (decl : Name) : Option Name :=
+  ix.getParam? Compiler.implementedByAttr decl
+
 end Index
 
 namespace Index
@@ -243,7 +248,7 @@ Builds the index from the modules returned by `readModules`. The constant maps a
 in `finalizeImport`, including its `subsumesInfo` rule for theorems that several modules realised.
 -/
 public def Index.build (modules : Array Module) (extraExts : Array Name := #[]) : IO Index := do
-  let extSlots := #[metaExt.name, declMetaExt.name, extraModUses.name, isExtraRevModUseExt.name,
+  let extSlots := #[Compiler.implementedByAttr.ext.name, metaExt.name, declMetaExt.name, extraModUses.name, isExtraRevModUseExt.name,
     indirectModUseExt.name, Meta.Match.Extension.extension.name] ++ extraExts
   let modules := modules.map fun m => { m with
     extEntries := extSlots.map fun n => (m.priv.entries.find? (·.1 == n)).map (·.2) |>.getD #[] }

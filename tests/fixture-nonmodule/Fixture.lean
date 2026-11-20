@@ -6,6 +6,9 @@ import Fixture.Downstream
 import Fixture.EqnRealize
 import Fixture.EqnUse
 import Fixture.Eqns
+import Fixture.IbDecl
+import Fixture.IbImpl
+import Fixture.IbUse
 import Fixture.Implied
 import Fixture.InstAttr
 import Fixture.InstDef

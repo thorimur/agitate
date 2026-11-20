@@ -1,4 +1,10 @@
-# agitate
+# `agitate`: to `shake` faster
+
+⚠️ This is a small, temporary, **vibe-coded** project to make `lake shake` much faster by avoiding the environment construction.
+
+This part was written by me (Thomas R. Murrills). The rest is Claude.
+
+---
 
 A Lean import minimizer: a reimplementation of `lake shake` (Lean `v4.33.1`). It reads `.olean`
 files directly instead of importing the whole environment, and it is much faster. On Mathlib it

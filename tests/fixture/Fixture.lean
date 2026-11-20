@@ -8,6 +8,9 @@ public import Fixture.EqnRealize
 public import Fixture.EqnUse
 public import Fixture.Eqns
 public import Fixture.Exposed
+public import Fixture.IbDecl
+public import Fixture.IbImpl
+public import Fixture.IbUse
 public import Fixture.ImportAll
 public import Fixture.InstAttr
 public import Fixture.InstDef

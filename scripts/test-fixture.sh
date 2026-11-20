@@ -66,4 +66,16 @@ if (cd "$work/noInstance" && lake build > "$work/noInstance.build" 2>&1); then
 else
   echo "--ignore-indirect-kind instance --fix result: fails to build, as expected ($(grep -m1 -o 'Fixture/[A-Za-z/]*\.lean' "$work/noInstance.build"))"
 fi
+echo "== stale sources (oleans are trusted, not checked)"
+cp -R "$work/base" "$work/stale"
+# An import added to the source after the build, of a module outside the oleans' import closure.
+# Upstream panics here (`Option.get!`); agitate must skip it and say nothing about `Fixture/A.lean`.
+sed -i.bak 's/^module$/module\n\npublic import Lean.Data.Json/' "$work/stale/Fixture/A.lean"
+rm -f "$work/stale/Fixture/A.lean.bak"
+(cd "$work/stale" && lake env "$agitate" Fixture > stale.out 2> stale.err) || true
+if grep -q PANIC "$work/stale/stale.err"; then
+  echo "stale source import: PANIC"; grep -m3 PANIC "$work/stale/stale.err"; fail=1
+elif grep -q 'Fixture/A.lean:' "$work/stale/stale.out"; then
+  echo "stale source import: suggestions for Fixture/A.lean (UNEXPECTED)"; fail=1
+else echo "stale source import: skipped without a panic"; fi
 exit $fail

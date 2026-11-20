@@ -21,6 +21,8 @@ structure RefCtx where
   reservedRefsToBase : Bool
   /-- Indirect module uses of the kinds not ignored (`Args.ignoreIndirectKinds`). -/
   indirectModUses : Std.HashMap Name (Array ModuleIdx)
+  /-- See `Args.implementedByNeeds`. -/
+  implementedByNeeds : Bool
 
 def isDeclMeta' (ix : Index) (declName : Name) : Bool :=
   -- Matchers are not compiled by themselves but inlined by the compiler, so there is no IR decl
@@ -65,5 +67,16 @@ def resolveRef (s : RefCtx) (ref : Name) : Option Resolved := do
   let c ← getDepConstName? s ref
   let j ← s.ix.getModuleIdxFor? c
   return { mod := j, isMeta := isDeclMeta' s.ix c, indirect := s.indirectModUses[c]?.getD #[] }
+
+/--
+The `@[implemented_by]` target of `decl` with its module and meta-ness, if it is to be counted as a
+need of `decl`'s module (`Args.implementedByNeeds`; `agitate` addition). The attribute names the
+target only in its argument, so neither terms nor recorded uses mention it.
+-/
+def implementedByTarget? (s : RefCtx) (decl : Name) : Option (Name × ModuleIdx × Bool) := do
+  guard s.implementedByNeeds
+  let g ← s.ix.implementedBy? decl
+  let j ← s.ix.getModuleIdxFor? g
+  return (g, j, isDeclMeta' s.ix g)
 
 end Agitate

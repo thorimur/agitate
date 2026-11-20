@@ -124,6 +124,8 @@ structure State where
   reservedRefsToBase : Bool
   /-- See `Args.indirectViaPublic`. -/
   indirectViaPublic : Bool
+  /-- See `Args.implementedByNeeds`. -/
+  implementedByNeeds : Bool
   /--
   `transDeps[i]` is the (non-reflexive) transitive closure of `mods[i].imports`. More specifically,
   * `j ∈ transDeps[i].pub` if `i -(public import)->+ j`
@@ -153,7 +155,7 @@ structure State where
 /-- The reference-resolution view of the state. -/
 def State.refs (s : State) : RefCtx :=
   { ix := s.ix, reserved := s.reserved, reservedRefsToBase := s.reservedRefsToBase,
-    indirectModUses := s.indirectModUses }
+    indirectModUses := s.indirectModUses, implementedByNeeds := s.implementedByNeeds }
 
 /--
 Given module `j`'s transitive dependencies, computes the union of `transImps` and the transitive
@@ -217,6 +219,11 @@ def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
       let k := if k.isMeta then k else
         if pubCI?.any (·.hasValue (allowOpaque := true)) then .pub else .priv
       acc := visitExpr k e acc
+    -- `agitate`: the `@[implemented_by]` target, with the declaration's visibility (a compiled
+    -- caller in another module needs it, so an exported declaration needs it publicly)
+    if let some (_, j, gMeta) := implementedByTarget? s.refs ci.name then
+      if j != i then
+        acc := (acc.1.insert { k with isMeta := k.isMeta && !gMeta } j, acc.2)
 
   let mut needs := acc.1
   for use in ix.getExtraModUses i do
@@ -260,6 +267,9 @@ def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
       let k := if k.isMeta then k else
         if pubCI?.any (·.hasValue (allowOpaque := true)) then .pub else .priv
       deps := visitExpr k ci.name e deps
+    if let some (g, j, gMeta) := implementedByTarget? s.refs ci.name then
+      if j != i then
+        deps := addExplanation j { k with isMeta := k.isMeta && !gMeta } ci.name g deps
 
   for use in ix.getExtraModUses i do
     let j := ix.getModuleIdx? use.module |>.get!
@@ -295,6 +305,7 @@ def initState (ix : Index) (args : Args) : State := Id.run do
   let mut s := { ix, reserved := { ix, upstream := args.upstreamReserved },
                  reservedRefsToBase := args.reservedRefsToBase,
                  indirectViaPublic := args.indirectViaPublic,
+                 implementedByNeeds := args.implementedByNeeds,
                  indirectModUses := ix.indirectModUsesExcept ignore }
   for i in 0...ix.size do
     let mut imps := #[]
@@ -344,7 +355,12 @@ def visitModule (pkgs : Array Name) (srcSearchPath : SearchPath)
   -- Add additional preserved imports
   for impStx in imports do
     let imp := decodeImport impStx
-    let j : Nat := s.ix.getModuleIdx? imp.module |>.get!
+    -- `agitate`: oleans are trusted and not checked for freshness; a source import that is not in
+    -- the olean's import closure (source edited since the build) is skipped. Upstream panics here
+    -- (`get!`) and continues with a wrong module index; it never gets here without `--force`.
+    let some j := s.ix.getModuleIdx? imp.module
+      | if args.trace then IO.eprintln s!"`{imp}` is not in the oleans' import closure; skipping"
+        continue
     let k := NeedsKind.ofImport imp
     let reason? :=
       if impStx.raw.getTrailing?.any (·.toString.contains "shake: keep") then

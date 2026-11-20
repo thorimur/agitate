@@ -31,6 +31,19 @@ Fixture/EqnUse.lean:
     because of the implicit `Init` import
   note: `import Fixture.Eqns` required
     because `f_zero` refers to `f`
+Fixture/IbImpl.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/IbDecl.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.IbImpl` required
+    because `ibF` refers to `gImpl`
+Fixture/IbUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.IbDecl` required
+    because `ibUse` refers to `ibF`
 Fixture/Implied.lean:
   remove #[import Fixture.A]
   note: `import Init` required
@@ -144,6 +157,12 @@ Fixture.lean:
   note: `import Fixture.EqnUse` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.Eqns` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.IbDecl` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.IbImpl` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.IbUse` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.Implied` required
     because of `--only` / `shake: keep-all`
