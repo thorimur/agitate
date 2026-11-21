@@ -404,9 +404,8 @@ refers to. The rule above covers them under `--ignore-reserved-refs`/`--compat`.
 the candidates in the syntax (`quoteSyntax`, `Lean/Elab/Quotation.lean:127-143`). The compiled term
 holds them as `Name` literals, e.g. `Syntax.Preresolved.decl `quotTarget []`, not as constants, so
 `Expr.foldConsts` does not see them. Lean records no extra module use for them either: no
-`recordExtraModUse*` call site is in `Quotation.lean` or `ResolveName.lean`. Compare `` ``foo ``,
-whose elaborator records a private non-meta use (`Lean/Elab/BuiltinTerm.lean:258-263`). So if a
-quotation is the only use of an import, shake removes the import. The quotation's own module still
+`recordExtraModUse*` call site is in `Quotation.lean` or `ResolveName.lean`. So if a quotation is
+the only use of an import, shake removes the import. The quotation's own module still
 builds, because preresolution simply finds nothing. The breakage shows up at every expansion site.
 With no preresolved candidates, `resolveName` falls back to `realizeGlobalName`
 (`Lean/Elab/Term/TermElabM.lean:2189-2192`). That lookup puts the macro scopes back onto the name
@@ -417,21 +416,29 @@ with `lake shake --fix`, `v4.33.1`). `notation` happens to be covered: its gener
 `macro`, `macro_rules`, `elab` and hand-written metaprograms are not covered.
 
 **Workaround (Thomas: "an ordinary extra mod use, for now"), `Agitate/Preresolved.lean`.** Both
-tools synthesize the extra module use that Lean would record if `quoteSyntax` behaved like
-`` ``foo ``:
+tools synthesize the extra module use that Lean does not record:
 
 * For every `Syntax.Preresolved.decl n _` in a declaration's value whose `n` is a closed `Name`
   term, the declarer of `n` becomes a need of the module. The name is resolved like a constant
   reference (`resolveRef`, `Resolved.forModule`), so reserved names and duplicates behave the same.
 * **Kind (Thomas):** public if the declaration containing the quotation is exported, private
-  otherwise; never meta. The name is data to the metaprogram, not code it runs, and expansion
-  sites elaborate it in the regular phase. A macro's auxiliary definition counts as exported even
-  without `public macro`. In the fixture, `QuotMacro` keeps a public import and `QuotHelper`, whose
-  quotation is in a private `meta def`, a private one. This differs from Lean's own choice for
-  `` ``foo ``, which is always private (`withoutExporting`, `Lean/Elab/BuiltinTerm.lean:260`). A
-  private import would also be enough for `--fix` results to build: expansion sites refer to the
-  declaration as a constant, so shake gives them a direct import of it (the `QuotHelper` case
-  shows this). The public import saves a macro's users from importing what its expansion needs.
+  otherwise; never meta. We know why a name gets preresolved: so that the quoted syntax resolves to
+  it wherever it is elaborated, i.e. in the modules that run the macro or elaborator. Whether other
+  modules can run it is what the declaration's visibility says. The name is data to the
+  metaprogram, not code it runs, and those modules elaborate it in the regular phase. A macro's
+  auxiliary definition counts as exported even without `public macro`. In the fixture,
+  `QuotMacro` keeps a public import and `QuotHelper`, whose quotation is in a private `meta def`,
+  a private one. A private import would also be enough for `--fix` results to build: expansion
+  sites refer to the declaration as a constant, so shake gives them a direct import of it (the
+  `QuotHelper` case shows this). The public import saves a macro's users from importing what its
+  expansion needs.
+* **Possible restriction (Thomas), not implemented.** Count only quotations in declarations with
+  the `@[macro]` attribute, where the reason for preresolving is clearest. Of the hits traced with
+  `--explain` (below), only `json%` in `Lean/Data/Json/Elab.lean` is such a declaration. The
+  others are `elab_rules` elaborators (`Mathlib/Util/Notation3.lean`,
+  `Mathlib/Util/ParseCommand.lean`), plain helpers (`elabElabRulesAux` in
+  `Lean/Elab/ElabRules.lean`, `doSeqToCode` in `Lean/Elab/Do/Legacy.lean`) and the fixture's
+  private `meta def` helper. The restriction would miss all of these.
 * **Not followed (Claude):** the declarer's indirect module uses, which `recordExtraModUseFromDecl`
   would add. They are needs of expansion sites, and expansion sites reference the declaration as a
   constant and get them that way. The quotation's module only needs the name to resolve.
@@ -466,7 +473,7 @@ tools synthesize the extra module use that Lean would record if `quoteSyntax` be
 **The ideal solution, in Lean.** Two parts:
 
 1. `quoteSyntax` records an extra module use for each preresolved declaration, at the export level
-   of the declaration being elaborated, as `` ``foo `` does. That is all the workaround emulates,
+   of the declaration being elaborated. That is all the workaround emulates,
    and agitate would then need no special code: delete `Agitate/Preresolved.lean`.
 2. Under the module system, a macro's users need the preresolved declarations as well, and a
    private import in the macro's module does not reach them. The natural carrier is an indirect

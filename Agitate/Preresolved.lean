@@ -15,9 +15,9 @@ that is the only use of `foo`'s module, `lake shake` removes the import. The quo
 still builds (preresolution just finds nothing), but every expansion then fails with
 ``Unknown identifier `foo✝` ``: the name carries macro scopes, so only preresolution can resolve it.
 
-This file works around that by synthesizing the extra module use that Lean would record if
-`quoteSyntax` did what `` ``foo `` does (`elabDoubleQuotedName`): a non-meta use of the
-declaring module, public if the declaration containing the quotation is. The ideal fix is in
+This file works around that by synthesizing the extra module use that Lean does not record: a
+non-meta use of the declaring module, public if the declaration containing the quotation is. The
+ideal fix is in
 Lean, see DESIGN.md. Kept separate so it can be removed once Lean records these uses itself.
 -/
 module
