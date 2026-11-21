@@ -6,6 +6,18 @@ Fixture/B.lean:
     because of the implicit `Init` import
   note: `import Fixture.A` required
     because `b` refers to `a`
+Fixture/BinderA.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/BinderB.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/BinderUse.lean:
+  remove #[import Fixture.BinderA]
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.BinderB` required
+    because `binderUse` refers to `binderThm`
 Fixture/C.lean:
   note: `import Init` required
     because of the implicit `Init` import
@@ -158,6 +170,12 @@ Fixture.lean:
   note: `import Fixture.A` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.B` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.BinderA` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.BinderB` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.BinderUse` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.C` required
     because of `--only` / `shake: keep-all`

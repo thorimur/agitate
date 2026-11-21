@@ -45,8 +45,9 @@ The options match `lake shake`: `--keep-implied`, `--keep-prefix`, `--keep-publi
 * `--ignore-indirect-kind <KIND>`: ignore indirect module uses recorded by attribute `KIND`
   (repeatable; `*` for all). By default all kinds count, as in `lake shake`.
 * `--upstream-duplicates`: charge every use of a name declared in several modules (identical
-  theorems) to the first declarer, as `lake shake` does. By default a module's own declaration wins,
-  then a declarer its imports reach; upstream can add an import from outside the module's closure.
+  theorems up to binder annotations) to the first declarer, as `lake shake` does. By default a
+  module's own declaration wins, then the copy its environment showed (the last loaded); upstream
+  can add an import from outside the module's closure, or keep a copy that elaborates differently.
 * `--upstream-indirect`: count an indirect module use only when the recording module is reached
   through an import of exactly the needed kind, as `lake shake` does. By default a public import
   also satisfies a private need.

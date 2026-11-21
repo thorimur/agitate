@@ -1,3 +1,5 @@
+Fixture/BinderUse.lean:
+  remove #[import Fixture.BinderA]
 Fixture/EqnUse.lean:
   remove #[import Fixture.EqnRealize]
   add #[import Fixture.Eqns]

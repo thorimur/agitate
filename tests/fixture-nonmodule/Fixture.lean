@@ -6,6 +6,9 @@ Authors: Thomas Murrills
 -- shake: keep-all
 import Fixture.A
 import Fixture.B
+import Fixture.BinderA
+import Fixture.BinderB
+import Fixture.BinderUse
 import Fixture.C
 import Fixture.Downstream
 import Fixture.DupA

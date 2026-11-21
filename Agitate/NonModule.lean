@@ -79,10 +79,12 @@ distinct name, see `resolveRef`), indirect uses it already reaches, and recorded
 -/
 def calcNeeds (s : State) (i : ModuleIdx) : Bitset := Id.run do
   let mut acc : Bitset × Std.HashMap Name (Option Resolved) := (∅, {})
+  -- `i`'s load order, only computed if `i` uses a name declared in several modules
+  let order : Thunk (Array Index.LoadedModule) := .mk fun _ => s.ix.loadOrder i
   for ci in s.ix.constants i do
-    acc := visitExpr ci.type acc
+    acc := visitExpr order ci.type acc
     if let some e := ci.value? (allowOpaque := true) then
-      acc := visitExpr e acc
+      acc := visitExpr order e acc
     if let some (_, j, _) := implementedByTarget? s.refs ci.name then
       if j != i then
         acc := (acc.1.insert j, acc.2)
@@ -92,16 +94,18 @@ def calcNeeds (s : State) (i : ModuleIdx) : Bitset := Id.run do
       needs := needs.insert j
   return needs
 where
-  visitExpr (e : Expr) (acc : Bitset × Std.HashMap Name (Option Resolved)) :
-      Bitset × Std.HashMap Name (Option Resolved) :=
+  visitExpr (order : Thunk (Array Index.LoadedModule)) (e : Expr)
+      (acc : Bitset × Std.HashMap Name (Option Resolved)) : Bitset × Std.HashMap Name (Option Resolved) :=
     Lean.Expr.foldConsts e acc fun c (deps, cache) => Id.run do
       let (r?, cache) := match cache[c]? with
         | some r? => (r?, cache)
-        | none => let r? := resolveRef s.refs c; (r?, cache.insert c r?)
+        | none =>
+          let r? := (resolveRef s.refs c).bind (·.forModule s.ix order i)
+          (r?, cache.insert c r?)
       let mut deps := deps
       if let some r := r? then
-        if let some j := r.moduleFor i fun _ => #[(s.transDepsOrig[i]!.has ·)] then
-          deps := deps.insert j
+        if r.mod != i then
+          deps := deps.insert r.mod
           for indMod in r.indirect do
             if s.transDepsOrig[i]!.has indMod then
               deps := deps.insert indMod
@@ -111,10 +115,11 @@ where
 extra use (shortest user name wins, as upstream). -/
 def getExplanations (s : State) (i : ModuleIdx) : Std.HashMap ModuleIdx (Option (Name × Name)) := Id.run do
   let mut deps := {}
+  let order : Thunk (Array Index.LoadedModule) := .mk fun _ => s.ix.loadOrder i
   for ci in s.ix.constants i do
-    deps := visitExpr ci.name ci.type deps
+    deps := visitExpr order ci.name ci.type deps
     if let some e := ci.value? (allowOpaque := true) then
-      deps := visitExpr ci.name e deps
+      deps := visitExpr order ci.name e deps
     if let some (g, j, _) := implementedByTarget? s.refs ci.name then
       if j != i then
         deps := add j ci.name g deps
@@ -124,12 +129,12 @@ def getExplanations (s : State) (i : ModuleIdx) : Std.HashMap ModuleIdx (Option 
         deps := deps.insert j none
   return deps
 where
-  visitExpr (name : Name) (e : Expr) deps :=
+  visitExpr (order : Thunk (Array Index.LoadedModule)) (name : Name) (e : Expr) deps :=
     Lean.Expr.foldConsts e deps fun c deps => Id.run do
       let mut deps := deps
-      if let some r := resolveRef s.refs c then
-        if let some j := r.moduleFor i fun _ => #[(s.transDepsOrig[i]!.has ·)] then
-          deps := add j name c deps
+      if let some r := (resolveRef s.refs c).bind (·.forModule s.ix order i) then
+        if r.mod != i then
+          deps := add r.mod name c deps
           for indMod in r.indirect do
             if s.transDepsOrig[i]!.has indMod then
               deps := add indMod name (`_indirect ++ c) deps

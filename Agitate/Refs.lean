@@ -67,6 +67,8 @@ the (possibly redirected) dependency, whether that declaration is `meta`, and it
 uses. `none` if the reference is ignored (reserved, or not an imported constant).
 -/
 structure Resolved where
+  /-- The (possibly redirected) name of the dependency. -/
+  name : Name
   /-- The first declaring module (core's `getModuleIdxFor?`). -/
   mod : ModuleIdx
   isMeta : Bool
@@ -81,26 +83,28 @@ structure Resolved where
 def resolveRef (s : RefCtx) (ref : Name) : Option Resolved := do
   let c ← getDepConstName? s ref
   let j ← s.ix.getModuleIdxFor? c
-  return { mod := j, isMeta := isDeclMeta' s.ix c, indirect := s.indirectModUses[c]?.getD #[],
+  return { name := c, mod := j, isMeta := isDeclMeta' s.ix c,
+           indirect := s.indirectModUses[c]?.getD #[],
            decls := if s.resolveDuplicates then s.ix.dupDecls[c]?.getD #[] else #[] }
 
 /--
-The module that a reference from module `i` needs, or `none` if `i` declares the name itself.
-
-For a name declared in several modules (identical theorems), upstream charges every reference to
-the first declarer, which may be outside `i`'s imports, or charges `i`'s own theorem to another
-module. Here a declaration in `i` itself wins. Otherwise the first declarer satisfying a preference,
-tried in order: typically "reached by `i`'s original imports with the needed kind", then "reached at
-all". One always exists, because `i` compiled. The fallback is the first declarer, as upstream.
+Specializes a resolution to referencing module `i` (`agitate` addition). For a name declared in
+several modules (identical theorems up to binder annotations, which imports merge), upstream
+charges every use to the first declarer, which may be outside `i`'s imports, and may charge `i`'s
+own theorem to another module. Here `none` means `i` declares the name itself. Otherwise `mod`
+becomes the declarer whose copy `i`'s environment showed (`Index.visibleDeclarer` over `i`'s load
+order, `order`). Copies equal for the kernel can elaborate differently (binder annotations), so
+that copy is the one `i` relies on. For other names, `r` is returned unchanged. Called once per
+distinct name per module; `order` is computed at most once per module, and only when needed.
 -/
-@[inline] def Resolved.moduleFor (r : Resolved) (i : ModuleIdx)
-    (prefs : Unit → Array (ModuleIdx → Bool)) : Option ModuleIdx :=
+def Resolved.forModule (ix : Index) (order : Thunk (Array Index.LoadedModule)) (i : ModuleIdx)
+    (r : Resolved) : Option Resolved :=
   if r.decls.isEmpty then
-    if r.mod == i then none else some r.mod
+    some r
   else if r.decls.contains i then
     none
   else
-    some <| ((prefs ()).findSome? fun p => r.decls.find? p).getD r.mod
+    some { r with mod := (ix.visibleDeclarer order.get r.name r.decls).getD r.mod, decls := #[] }
 
 /--
 The `@[implemented_by]` target of `decl` with its module and meta-ness, if it is to be counted as a

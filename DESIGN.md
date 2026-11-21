@@ -27,7 +27,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | `agitate` skips source imports missing from the oleans' closure (stale oleans) instead of panicking. | Thomas | implemented |
 | License the repository under Apache 2.0, with copyright headers; files copied or ported from Lean keep their original notices and describe their changes. | Thomas | done |
 | Resolve modules through the Lake workspace (root package first, then the toolchain), never `LEAN_PATH`/`LEAN_SRC_PATH`; default to the root's default target roots. | Thomas | implemented |
-| For a name declared in several modules, charge a use to the module itself if it declares the name, else to a declarer its original imports reach; `--upstream-duplicates` restores first-declarer resolution. | Thomas (reported by another session; design by Claude) | implemented |
+| For a name declared in several modules, charge a use to the module itself if it declares the name, else to the copy its environment showed (core's last-loaded rule over its own load order); `--upstream-duplicates` restores first-declarer resolution. | Thomas (reported by other sessions; design by Claude, last-loaded rule by Thomas) | implemented |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
 | Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
@@ -360,18 +360,37 @@ the module's imports. In the module fixture, upstream's `--fix` then fails with 
 
 `Index.dupDecls` records all declaring modules, but only for duplicated names (it is filled in the
 branch that already handles duplicates). `const2ModIdx` stays as in core, so `agitate-check` is
-unaffected. `resolveRef` returns them in `Resolved.decls`, still once per distinct name per module.
-`Resolved.moduleFor` then chooses per referencing module `i`:
+unaffected. `resolveRef` returns them in `Resolved.decls`. `Resolved.forModule` then specialises a
+resolution to the referencing module `i`, once per distinct name per module:
 
 * if `i` itself declares the name, the use is local and needs nothing;
-* otherwise, the first declarer reached by `i`'s *original* imports with the needed kind (or its
-  public version), then with any kind. One exists, because `i` compiled. The fallback is the first
-  declarer.
+* otherwise, the use is charged to the declarer whose copy `i`'s environment showed
+  (`Index.visibleDeclarer`). This replays core's rule (`Lean/Environment.lean:2340-2341`): a later
+  copy replaces the current one if it subsumes it, so among copies identical up to binder
+  annotations the last loaded wins. It runs over `i`'s own load order (`Index.loadOrder`), which
+  replicates `importModulesCore`'s traversal over the import lists in the index (including which
+  olean part each module contributes) and can differ from `ModuleIdx` order.
 
-Both tools and `--explain` use this. Unique names pay one `isEmpty` test per occurrence.
-`--upstream-duplicates` (part of `--compat`) restores upstream. The fixtures' `DupA`/`DupB`/`DupUse`
-reproduce the report: upstream adds `DupA` to `DupB`, and replaces `DupUse`'s import of `DupB` by
-`DupA`. No change on core.
+**Why the copy matters (second report, Thomas: "just the last-loaded").** A first version charged the
+first declarer reached by `i`'s imports, assuming copies are interchangeable. They are only for the
+kernel. `subsumesInfo` compares types with `==`, which is `Expr.eqv` and ignores binder annotations
+(`Lean/Expr.lean:804-812`). Another project declared `umat_mem_UJset` with `ε` explicit in one module
+and implicit in another; the file relied on the explicit copy, which loaded last. Keeping the other
+copy broke `umat_mem_UJset ε g`. The fixtures' `BinderA`/`BinderB`/`BinderUse` reproduce it:
+`--compat` (and the first version) keep `BinderA`, whose `--fix` result fails to build.
+
+**Cost.** Nothing is loaded: `loadOrder` walks the import lists already read from the oleans, and
+`visibleDeclarer` compares the few declaring copies with core's `subsumesInfo`. Unique names pay
+one `isEmpty` test per occurrence. A module that uses a duplicated name pays one traversal of its
+import closure, memoised with a `Thunk`, plus one pass over that order per such name. Both happen
+inside the parallel `calcNeeds`. Worst case, measured on Mathlib's import graph (as if every one
+of its 10 498 modules used a duplicated name; Mathlib itself avoids duplicates): `loadOrder` for all
+modules takes 13.3 s sequentially and 1.8 s in parallel, i.e. ~1.3 ms per module, over 23M
+load-order entries (largest closure 10 496 modules).
+
+Both tools and `--explain` use this. `--upstream-duplicates` (part of `--compat`) restores upstream.
+The fixtures' `DupA`/`DupB`/`DupUse` reproduce the first report: upstream adds `DupA` to `DupB`, and
+replaces `DupUse`'s import of `DupB` by `DupA`. No change on core.
 
 Duplicated *equation lemmas*, which are realised routinely in several modules, are reserved names.
 By default a use counts as one to the base declaration (see "Reserved names"), whichever copy it

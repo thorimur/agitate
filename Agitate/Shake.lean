@@ -161,13 +161,6 @@ def State.refs (s : State) : RefCtx :=
     indirectModUses := s.indirectModUses, implementedByNeeds := s.implementedByNeeds,
     resolveDuplicates := s.resolveDuplicates }
 
-/-- Preferences among the declarers of a duplicated name (`Resolved.moduleFor`): reached by `i`'s
-original imports with kind `k` (or its public version), then reached with any kind. -/
-def declPrefs (s : State) (i : ModuleIdx) (k : NeedsKind) : Array (ModuleIdx → Bool) :=
-  let t := s.transDepsOrig[i]!
-  #[fun m => t.has k m || t.has { k with isExported := true } m,
-    fun m => NeedsKind.all.any (t.has · m)]
-
 /--
 Given module `j`'s transitive dependencies, computes the union of `transImps` and the transitive
 dependencies resulting from importing the module via `imp` according to the rules of
@@ -220,16 +213,18 @@ of at every occurrence; the per-occurrence work is only the `NeedsKind` bookkeep
 def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
   let ix := s.ix
   let mut acc : Needs × Std.HashMap Name (Option Resolved) := (default, {})
+  -- `agitate`: `i`'s load order, only computed if `i` uses a name declared in several modules
+  let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
   for ci in ix.constants i do
     -- Added guard for cases like `structure` that are still exported even if private
     let pubCI? := guard (!isPrivateName ci.name) *> ix.findPublic? ci.name
     let k := { isExported := pubCI?.isSome, isMeta := isDeclMeta' ix ci.name }
-    acc := visitExpr k ci.type acc
+    acc := visitExpr order k ci.type acc
     if let some e := ci.value? (allowOpaque := true) then
       -- type and value has identical visibility under `meta`
       let k := if k.isMeta then k else
         if pubCI?.any (·.hasValue (allowOpaque := true)) then .pub else .priv
-      acc := visitExpr k e acc
+      acc := visitExpr order k e acc
     -- `agitate`: the `@[implemented_by]` target, with the declaration's visibility (a compiled
     -- caller in another module needs it, so an exported declaration needs it publicly)
     if let some (_, j, gMeta) := implementedByTarget? s.refs ci.name then
@@ -244,17 +239,19 @@ def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
   return needs
 where
   /-- Accumulate the results from expression `e` into `deps`. -/
-  visitExpr (k : NeedsKind) (e : Expr) (acc : Needs × Std.HashMap Name (Option Resolved)) :
-      Needs × Std.HashMap Name (Option Resolved) :=
+  visitExpr (order : Thunk (Array Index.LoadedModule)) (k : NeedsKind) (e : Expr)
+      (acc : Needs × Std.HashMap Name (Option Resolved)) : Needs × Std.HashMap Name (Option Resolved) :=
     Lean.Expr.foldConsts e acc fun c (deps, cache) => Id.run do
       let (r?, cache) := match cache[c]? with
         | some r? => (r?, cache)
-        | none => let r? := resolveRef s.refs c; (r?, cache.insert c r?)
+        | none =>
+          let r? := (resolveRef s.refs c).bind (·.forModule s.ix order i)
+          (r?, cache.insert c r?)
       let mut deps := deps
       if let some r := r? then
         let k := { k with isMeta := k.isMeta && !r.isMeta }
-        if let some j := r.moduleFor i fun _ => declPrefs s i k then
-          deps := deps.insert k j
+        if r.mod != i then
+          deps := deps.insert k r.mod
           for (indMod : Nat) in r.indirect do
             if reachesForIndirect s i k indMod then
               deps := deps.insert k indMod
@@ -269,15 +266,16 @@ Calculates the same as `calcNeeds` but tracing each module to a use-def declarat
 def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
   let ix := s.ix
   let mut deps := default
+  let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
   for ci in ix.constants i do
     -- Added guard for cases like `structure` that are still exported even if private
     let pubCI? := guard (!isPrivateName ci.name) *> ix.findPublic? ci.name
     let k := { isExported := pubCI?.isSome, isMeta := isDeclMeta' ix ci.name }
-    deps := visitExpr k ci.name ci.type deps
+    deps := visitExpr order k ci.name ci.type deps
     if let some e := ci.value? (allowOpaque := true) then
       let k := if k.isMeta then k else
         if pubCI?.any (·.hasValue (allowOpaque := true)) then .pub else .priv
-      deps := visitExpr k ci.name e deps
+      deps := visitExpr order k ci.name e deps
     if let some (g, j, gMeta) := implementedByTarget? s.refs ci.name then
       if j != i then
         deps := addExplanation j { k with isMeta := k.isMeta && !gMeta } ci.name g deps
@@ -290,7 +288,7 @@ def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
   return deps
 where
   /-- Accumulate the results from expression `e` into `deps`. -/
-  visitExpr (k : NeedsKind) name e deps :=
+  visitExpr (order : Thunk (Array Index.LoadedModule)) (k : NeedsKind) name e deps :=
     let ix := s.ix
     Lean.Expr.foldConsts e deps fun c deps => Id.run do
       let mut deps := deps
@@ -299,7 +297,7 @@ where
           let k := { k with isMeta := k.isMeta && !isDeclMeta' ix c }
           -- `agitate`: for duplicated names, the declarer `calcNeeds` charges (none: `i` itself)
           let j? := if s.resolveDuplicates && ix.dupDecls.contains c then
-              (resolveRef s.refs c).bind (·.moduleFor i fun _ => declPrefs s i k)
+              (resolveRef s.refs c).bind (·.forModule ix order i) |>.map (·.mod)
             else some j
           if let some j := j? then
             deps := addExplanation j k name c deps

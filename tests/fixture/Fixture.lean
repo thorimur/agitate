@@ -7,6 +7,9 @@ module -- shake: keep-all
 
 public import Fixture.A
 public import Fixture.B
+public import Fixture.BinderA
+public import Fixture.BinderB
+public import Fixture.BinderUse
 public import Fixture.C
 public import Fixture.Downstream
 public import Fixture.DupA

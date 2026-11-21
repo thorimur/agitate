@@ -59,9 +59,11 @@ structure Args where
   -/
   implementedByNeeds : Bool := true
   /--
-  For a name declared in several modules (identical theorems), charge a reference to the module
-  itself if it declares the name, else to a declarer its original imports reach. Upstream charges
-  the first declarer, which can add an import from outside the closure (`Resolved.moduleFor`).
+  For a name declared in several modules (theorems identical up to binder annotations), charge a
+  reference to the module itself if it declares the name, else to the declarer whose copy the
+  module's environment showed (the last loaded, by core's rule). Upstream charges the first
+  declarer, which can add an import from outside the closure, or keep a copy that elaborates
+  differently (`Resolved.forModule`).
   `false` (`--upstream-duplicates`) restores upstream behaviour (`agitate` addition).
   -/
   resolveDuplicates : Bool := true
@@ -134,7 +136,7 @@ OPTIONS:
                    as `lake shake` does (its `--fix` result may then not build)
   --upstream-duplicates
                    charge every use of a name declared in several modules to the first declarer,
-                   as `lake shake` does, instead of the module itself or a declarer it imports
+                   as `lake shake` does, instead of the module itself or the copy it saw
   --ignore-indirect-kind <KIND>
                    ignore indirect module uses recorded by attribute KIND (repeatable; `*` for all)
   --list-indirect-kinds

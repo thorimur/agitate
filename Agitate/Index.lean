@@ -78,7 +78,7 @@ public structure Index where
   /--
   For each name declared in more than one module (identical theorems, which `subsumesInfo` lets
   imports merge), all declaring modules in `ModuleIdx` order. `const2ModIdx` keeps only the first,
-  as core does; references are resolved per module against this table (`Resolved.moduleFor`).
+  as core does; references are resolved per module against this table (`Resolved.forModule`).
   -/
   dupDecls : Std.HashMap Name (Array ModuleIdx) := {}
 
@@ -169,6 +169,82 @@ public def getParam? {α : Type} [Inhabited α] (attr : ParametricAttribute α) 
 /-- The `@[implemented_by]` target of `decl`, if any (`Compiler.getImplementedBy?`). -/
 public def implementedBy? (decl : Name) : Option Name :=
   ix.getParam? Compiler.implementedByAttr decl
+
+/-- A module as loaded into some module's environment: whether it contributes its data (`.olean*`)
+and whether at the private level (`import all`), as `importModulesCore` decides. -/
+public structure LoadedModule where
+  idx : ModuleIdx
+  importAll : Bool
+  hasData : Bool
+deriving Inhabited
+
+private structure LoadFlags where
+  importAll : Bool
+  isExported : Bool
+  hasData : Bool
+  needsIRTrans : Bool
+deriving BEq, Inhabited
+
+/--
+The modules of `i`'s environment in the order core loads them when elaborating `i`, with their
+final flags. This replicates `importModulesCore`'s traversal (`Lean/Environment.lean`, `v4.33.1`)
+over the imports recorded in the oleans: a module is pushed after its imports on first discovery,
+and later discoveries only strengthen its flags. Modules are imported at the `.exported` level by
+module-system files and at the `.private` level otherwise (`Lean/Elab/Import.lean:147-153`). The
+order can differ from `ModuleIdx` order, which comes from the roots' traversal.
+-/
+public partial def loadOrder (i : ModuleIdx) : Array LoadedModule := Id.run do
+  let globalPrivate := !ix.modules[i]!.priv.isModule
+  let rec go (imports : Array Import) (importAll isExported needsData needsIRTrans : Bool) :
+      StateM (Std.HashMap ModuleIdx LoadFlags × Array ModuleIdx) Unit := do
+    for imp in imports do
+      let some j := ix.getModuleIdx? imp.module | continue
+      let needsData := needsData && (imp.isExported || importAll)
+      let importAll := globalPrivate || importAll && imp.importAll
+      let isExported := isExported && imp.isExported
+      let needsIRTrans := needsIRTrans || (needsData && imp.isMeta)
+      let needsIR := needsIRTrans || importAll || globalPrivate
+      if !needsData && !needsIR then
+        continue
+      match (← get).1[j]? with
+      | some f =>
+        let f' : LoadFlags := {
+          importAll := importAll || f.importAll
+          isExported := isExported || f.isExported
+          hasData := needsData || f.hasData
+          needsIRTrans := needsIRTrans || f.needsIRTrans }
+        if f' != f then
+          modify fun (m, o) => (m.insert j f', o)
+          go (ix.imports j) f'.importAll f'.isExported f'.hasData f'.needsIRTrans
+      | none =>
+        go (ix.imports j) importAll isExported needsData needsIRTrans
+        modify fun (m, o) =>
+          (m.insert j { importAll, isExported, hasData := needsData, needsIRTrans }, o.push j)
+  let ((), (flags, order)) :=
+    (go (ix.imports i) true (!globalPrivate) true false).run ({}, #[])
+  return order.map fun j =>
+    let f := flags[j]!
+    { idx := j, importAll := f.importAll, hasData := f.hasData }
+
+/--
+For a name declared in several modules (`dupDecls`), the declarer whose copy the environment with
+load order `order` shows, by core's rule in `finalizeImport` (`Lean/Environment.lean:2340-2341`): a
+later copy replaces the current one if it subsumes it, so among copies identical up to binder
+annotations, the last loaded wins. Copies that are equal for the kernel (`subsumesInfo` compares
+types with `==`, which ignores binder annotations) can still elaborate differently.
+-/
+public def visibleDeclarer (order : Array LoadedModule) (c : Name) (decls : Array ModuleIdx) :
+    Option ModuleIdx := Id.run do
+  let mut cur : Option (ModuleIdx × ConstantInfo) := none
+  for m in order do
+    if m.hasData && decls.contains m.idx then
+      let data := if m.importAll then ix.modules[m.idx]!.priv else ix.modules[m.idx]!.pub
+      if let some k := data.constNames.idxOf? c then
+        let ci := data.constants[k]!
+        cur := match cur with
+          | none => some (m.idx, ci)
+          | some (_, prev) => if subsumesInfo ix.privConsts ci prev then some (m.idx, ci) else cur
+  return cur.map (·.1)
 
 end Index
 
