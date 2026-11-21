@@ -50,4 +50,7 @@
 * The Bash tool's shell is zsh: unquoted `$flags` is not word-split (use `${=flags}`), and
   `2>&1 >/dev/null` behaves differently from bash (wrap the command in a subshell).
 * `x matches p` inside a `match` arm swallows the following arms; parenthesise it.
+* `agitate-check` is a default target so that `lake build` keeps it current. A stale checker run
+  under `lake env` once still passed through `LEAN_PATH` after module resolution had moved to the
+  Lake workspace. Run the checker directly, not under `lake env`.
 * `--profile` serialises phases, so its total exceeds the normal wall time.

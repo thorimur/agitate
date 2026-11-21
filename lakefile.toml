@@ -1,7 +1,7 @@
 name = "agitate"
 version = "0.1.0"
 license = "Apache-2.0"
-defaultTargets = ["agitate", "agitate-nonmodule"]
+defaultTargets = ["agitate", "agitate-nonmodule", "agitate-check"]
 
 [[lean_lib]]
 name = "Agitate"

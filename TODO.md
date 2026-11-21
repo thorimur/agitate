@@ -16,9 +16,6 @@
   It takes hours of machine time, so ask Thomas before running it.
 * Report the two reserved-name quirks upstream, and possibly the reserved-reference redirect.
   Deferred: Thomas does not want anything reported for now.
-* Run the heavier checks for the duplicate-declaration fix once the machine is free (deferred at
-  Thomas's request): `compare.sh` on Batteries and Mathlib, `test-batteries-nonmodule.sh`,
-  `test-require.sh`, and the Mathlib impact of `--upstream-duplicates`.
 * `agitate-nonmodule`: test on a real non-module project once one on `v4.33.1` is at hand (so far
   only the fixture and a converted Batteries); time it on something Mathlib-sized.
 * CLI: decide whether to offer `lake shake`'s up-to-date check as an option (the default trusts
