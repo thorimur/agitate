@@ -427,12 +427,17 @@ tools synthesize the extra module use that Lean does not record:
   wherever that syntax is elaborated, i.e. in the modules that run the macro or elaborator. Whether
   other modules can run it is what the declaration's visibility says. The name is data to the
   metaprogram, not code it runs, and those modules elaborate it in the regular phase. A macro's
-  auxiliary definition counts as exported even without `public macro`. In the fixture,
-  `QuotMacro` keeps a public import and `QuotHelper`, whose quotation is in a private `meta def`,
-  a private one. A private import would also be enough for `--fix` results to build: expansion
-  sites refer to the declaration as a constant, so shake gives them a direct import of it (the
-  `QuotHelper` case shows this). The public import saves a macro's users from importing what its
-  expansion needs.
+  auxiliary definition counts as exported even without `public macro`, so `QuotMacro` in the
+  fixture keeps a public import.
+* **Limitation: private helpers (noted by Thomas; summarized).** The declaration's own visibility
+  only approximates "other modules run this quotation". A private `meta def` that builds syntax
+  for a public macro or elaborator in the same file runs wherever that macro is used, yet its
+  quotation gets a private import. The exact rule would make the need public if any exported meta
+  declaration reaches the helper through a chain of references. That is beyond this workaround.
+  The fixture's `QuotHelper` is exactly this case and gets a private import. Its `--fix` result
+  still builds: expansion sites refer to the declaration as a constant, so shake gives them a
+  direct import of it. So a private import never breaks a build. It only falls short of the
+  intent that a macro's users should not have to import what its expansion needs.
 * **Possible restriction, not implemented (suggested by Thomas; summarized).** Count only
   quotations in declarations with the `@[macro]` attribute. Of the hits traced with
   `--explain` (below), only `json%` in `Lean/Data/Json/Elab.lean` is such a declaration. The
