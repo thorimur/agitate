@@ -18,6 +18,7 @@ public import Agitate.Args
 public import Agitate.Bitset
 public import Agitate.Header
 public import Agitate.Refs
+public import Agitate.Preresolved
 import Init.Data.Range.Polymorphic.Iterators
 
 /-! # Shake: A Lean import minimizer
@@ -129,6 +130,8 @@ structure State where
   implementedByNeeds : Bool
   /-- See `Args.resolveDuplicates`. -/
   resolveDuplicates : Bool
+  /-- See `Args.preresolvedNeeds`. -/
+  preresolvedNeeds : Bool
   /-- See `Args.toModule`. -/
   toModule : Bool := false
   /-- `modulate`: the module-system imports of each converted file, and whether it becomes meta. -/
@@ -167,7 +170,8 @@ structure State where
 def State.refs (s : State) : RefCtx :=
   { ix := s.ix, reserved := s.reserved, reservedRefsToBase := s.reservedRefsToBase,
     indirectModUses := s.indirectModUses, implementedByNeeds := s.implementedByNeeds,
-    resolveDuplicates := s.resolveDuplicates, metaModules := s.metaModules }
+    resolveDuplicates := s.resolveDuplicates, preresolvedNeeds := s.preresolvedNeeds,
+    metaModules := s.metaModules }
 
 /--
 Given module `j`'s transitive dependencies, computes the union of `transImps` and the transitive
@@ -236,6 +240,16 @@ def State.convertedVisibility (s : State) (i : ModuleIdx) (ci : ConstantInfo) : 
   (exported, exported && (ci matches .defnInfo _ || auxProofOfExposed))
 
 /--
+The visibility of a declaration `ci` of module `i`, as `(exported, exposed)`: from the olean, or
+for a converted module as it will be after conversion (`convertedVisibility`).
+-/
+def State.visibility (s : State) (i : ModuleIdx) (ci : ConstantInfo) : Bool × Bool :=
+  if s.converting i then s.convertedVisibility i ci else
+  -- Added guard for cases like `structure` that are still exported even if private
+  let pubCI? := guard (!isPrivateName ci.name) *> s.ix.findPublic? ci.name
+  (pubCI?.isSome, pubCI?.any (·.hasValue (allowOpaque := true)))
+
+/--
 Calculates the needs for a given module `mod` from constants and recorded extra uses.
 
 `agitate` change: references are resolved once per distinct name per module (`resolveRef`) instead
@@ -248,12 +262,9 @@ def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
   let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
   let converting := s.converting i
   for ci in ix.constants i do
-    -- Added guard for cases like `structure` that are still exported even if private
-    let pubCI? := guard (!isPrivateName ci.name) *> ix.findPublic? ci.name
     -- `agitate` (`modulate`): visibility as under `@[expose] public section`, i.e. non-private
     -- declarations are public and definitions expose their bodies (theorem proofs never do)
-    let (exported, exposed) := if converting then s.convertedVisibility i ci
-      else (pubCI?.isSome, pubCI?.any (·.hasValue (allowOpaque := true)))
+    let (exported, exposed) := s.visibility i ci
     -- `modulate --meta`: everything in a `public meta section` is meta
     let k := { isExported := exported,
                isMeta := isDeclMeta' ix ci.name || (converting && s.metaModules.contains i) }
@@ -270,6 +281,12 @@ def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
         acc := (acc.1.insert { k with isMeta := k.isMeta && !gMeta } j, acc.2)
 
   let mut needs := acc.1
+  -- `agitate`: names preresolved by quotations, as the extra module uses Lean does not record
+  -- (`Agitate.Preresolved`); only modules whose terms mention `Syntax.Preresolved.decl` are scanned
+  if Preresolved.mayHave acc.2.contains then
+    for ci in ix.constants i do
+      for (_, j) in Preresolved.uses s.refs order i ci do
+        needs := needs.insert { isExported := (s.visibility i ci).1, isMeta := false } j
   for use in ix.getExtraModUses i do
     let j : Nat := ix.getModuleIdx? use.module |>.get!
     -- `agitate` (`modulate`): non-module elaboration records no exporting context; count the
@@ -314,10 +331,7 @@ def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
   let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
   let converting := s.converting i
   for ci in ix.constants i do
-    -- Added guard for cases like `structure` that are still exported even if private
-    let pubCI? := guard (!isPrivateName ci.name) *> ix.findPublic? ci.name
-    let (exported, exposed) := if converting then s.convertedVisibility i ci
-      else (pubCI?.isSome, pubCI?.any (·.hasValue (allowOpaque := true)))
+    let (exported, exposed) := s.visibility i ci
     let k := { isExported := exported,
                isMeta := isDeclMeta' ix ci.name || (converting && s.metaModules.contains i) }
     deps := visitExpr order k ci.name ci.type deps
@@ -328,6 +342,8 @@ def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
     if let some (g, j, gMeta) := implementedByTarget? s.refs ci.name then
       if j != i then
         deps := addExplanation j { k with isMeta := k.isMeta && !gMeta } ci.name g deps
+    for (n, j) in Preresolved.uses s.refs order i ci do
+      deps := addExplanation j { isExported := exported, isMeta := false } ci.name n deps
 
   for use in ix.getExtraModUses i do
     let j := ix.getModuleIdx? use.module |>.get!
@@ -373,6 +389,7 @@ def initState (ix : Index) (args : Args) : State := Id.run do
                  indirectViaPublic := args.indirectViaPublic,
                  implementedByNeeds := args.implementedByNeeds,
                  resolveDuplicates := args.resolveDuplicates,
+                 preresolvedNeeds := args.preresolvedNeeds,
                  toModule := args.toModule,
                  metaModules := Id.run do
                    let mut ms := {}

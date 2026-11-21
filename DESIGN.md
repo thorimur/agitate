@@ -24,6 +24,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | In non-module files, `shake: keep-all`/`keep-downstream` may appear in any header comment (there is no `module` token). | Claude | implemented |
 | Dependencies invisible in oleans (e.g. `open` of a namespace) are handled with `-- shake: keep`, not code. | Thomas | settled |
 | Count `@[implemented_by]` targets as needs, with the declaration's visibility in module mode; `--ignore-implemented-by` restores upstream. | Thomas | implemented |
+| Count names preresolved by syntax quotations as ordinary extra module uses of their declarers (non-meta; public if the containing declaration is exported); `--ignore-preresolved` restores upstream. A workaround: the fix belongs in Lean (see "Preresolved names in quotations"). | Thomas (proposal, kind); Claude (details) | implemented |
 | `agitate` skips source imports missing from the oleans' closure (stale oleans) instead of panicking. | Thomas | implemented |
 | License the repository under Apache 2.0, with copyright headers; files copied or ported from Lean keep their original notices and describe their changes. | Thomas | done |
 | Resolve modules through the Lake workspace (root package first, then the toolchain), never `LEAN_PATH`/`LEAN_SRC_PATH`; default to the root's default target roots. | Thomas | implemented |
@@ -396,6 +397,88 @@ replaces `DupUse`'s import of `DupB` by `DupA`. No change on core.
 Duplicated *equation lemmas*, which are realised routinely in several modules, are reserved names.
 By default a use counts as one to the base declaration (see "Reserved names"), whichever copy it
 refers to. The rule above covers them under `--ignore-reserved-refs`/`--compat`.
+
+### Preresolved names in quotations (worked around; the real fix belongs in Lean)
+
+**Problem.** A syntax quotation resolves its global identifiers when it is elaborated and stores
+the candidates in the syntax (`quoteSyntax`, `Lean/Elab/Quotation.lean:127-143`). The compiled term
+holds them as `Name` literals, e.g. `Syntax.Preresolved.decl `quotTarget []`, not as constants, so
+`Expr.foldConsts` does not see them. Lean records no extra module use for them either: no
+`recordExtraModUse*` call site is in `Quotation.lean` or `ResolveName.lean`. Compare `` ``foo ``,
+whose elaborator records a private non-meta use (`Lean/Elab/BuiltinTerm.lean:258-263`). So if a
+quotation is the only use of an import, shake removes the import. The quotation's own module still
+builds, because preresolution simply finds nothing. The breakage shows up at every expansion site.
+With no preresolved candidates, `resolveName` falls back to `realizeGlobalName`
+(`Lean/Elab/Term/TermElabM.lean:2189-2192`). That lookup puts the macro scopes back onto the name
+(`Lean/ResolveName.lean:196-201`), so no global matches: ``Unknown identifier `quotTarget✝` ``.
+It fails even where shake added a direct import of the declaring module (verified on the fixture
+with `lake shake --fix`, `v4.33.1`). `notation` happens to be covered: its generated
+`@[app_unexpander a]` records `a` through the attribute key (`Lean/KeyedDeclsAttribute.lean:35`).
+`macro`, `macro_rules`, `elab` and hand-written metaprograms are not covered.
+
+**Workaround (Thomas: "an ordinary extra mod use, for now"), `Agitate/Preresolved.lean`.** Both
+tools synthesize the extra module use that Lean would record if `quoteSyntax` behaved like
+`` ``foo ``:
+
+* For every `Syntax.Preresolved.decl n _` in a declaration's value whose `n` is a closed `Name`
+  term, the declarer of `n` becomes a need of the module. The name is resolved like a constant
+  reference (`resolveRef`, `Resolved.forModule`), so reserved names and duplicates behave the same.
+* **Kind (Thomas):** public if the declaration containing the quotation is exported, private
+  otherwise; never meta. The name is data to the metaprogram, not code it runs, and expansion
+  sites elaborate it in the regular phase. A macro's auxiliary definition counts as exported even
+  without `public macro`. In the fixture, `QuotMacro` keeps a public import and `QuotHelper`, whose
+  quotation is in a private `meta def`, a private one.
+* **Not followed (Claude):** the declarer's indirect module uses, which `recordExtraModUseFromDecl`
+  would add. They are needs of expansion sites, and expansion sites reference the declaration as a
+  constant and get them that way. The quotation's module only needs the name to resolve.
+* **Scope:** in `calcNeeds`, only modules whose terms mention `Syntax.Preresolved.decl` are scanned,
+  using the resolution cache's keys. `--explain` names the declaration and the preresolved name.
+* **Overcounting.** Preresolution keeps every candidate of `resolveGlobalName`, and binder
+  identifiers in a quotation are preresolved too: in `` `(fun x => …) `` with a global `x` in
+  scope, `x` is preresolved as well. The rule is "this import changes the compiled quotation", which
+  is broader than "expansion needs it".
+* **Impact (measured).** `--compat` stays identical to `lake shake` on core, Batteries and an early
+  Mathlib slice. Default-mode changes, against `--ignore-preresolved`:
+  * Batteries: none.
+  * Core `Lean`: 15 modules. Examples: `Lean/Data/Json/Elab.lean` (`json%` quotes `toJson`)
+    keeps `Lean.Data.Json.FromToJson.Basic`. `Lean/Elab/ElabRules.lean` (`elab_rules` quotes
+    `Tactic` and `DoElab` for the definitions it generates) keeps `Lean.Elab.Do.Basic` and adds
+    `Lean.Elab.Tactic.Basic`. `Lean/Elab/Do/Legacy.lean` (quotes `Loop.mk`) adds
+    `public import Init.While`.
+  * Mathlib `v4.33.1`, roots `Mathlib.Algebra.Group.Defs`, `Mathlib.Order.Notation`,
+    `Mathlib.Util.Notation3` and `Mathlib.Logic.Basic` (70 modules reported): 2 modules.
+    `Mathlib/Util/Notation3.lean` keeps `public import Lean.PrettyPrinter.Delaborator.Builtins`
+    (its generated delaborators quote `withOverApp`) where upstream substitutes
+    `public import Lean.SubExpr`. `Mathlib/Util/ParseCommand.lean` adds `public import Lean.Log`
+    and `Lean.Exception` (its `elab_rules` quotes `logInfo`, `ofExcept`). Elaborators often quote
+    core API, and their declarations are exported, so a public import of a core module can
+    appear where a meta import used to be enough.
+  * Cost: `calcNeeds` on core 275–282 ms with and without the scan (`--profile`, two runs each).
+* `--ignore-preresolved` (part of `--compat`) restores upstream. Tests:
+  `QuotTarget`/`QuotMacro`/`QuotHelperTarget`/`QuotHelper`/`QuotUse` in the module fixture,
+  `QuotTarget`/`QuotMacro`/`QuotUse` in the non-module one. With `--ignore-preresolved`, the
+  `--fix` result fails at `QuotUse`.
+
+**The ideal solution, in Lean.** Two parts:
+
+1. `quoteSyntax` records an extra module use for each preresolved declaration, at the export level
+   of the declaration being elaborated, as `` ``foo `` does. That is all the workaround emulates,
+   and agitate would then need no special code: delete `Agitate/Preresolved.lean`.
+2. Under the module system, a macro's users need the preresolved declarations as well, and a
+   private import in the macro's module does not reach them. The natural carrier is an indirect
+   use: "references to macro `m` also need module `F`". Expanding a macro already calls
+   `recordExtraModUseFromDecl` on its declaration (`Lean/Elab/Util.lean:160-162, 214-215`; tactics
+   at `Lean/Elab/Tactic/Basic.lean:255, 315`). That call also records the declaration's indirect
+   uses, non-meta, at the use site's export level (`Lean/ExtraModUses.lean:111-118`), which is
+   exactly the right kind. But an `IndirectModUse` holds only `{kind, declName}`, and its target is
+   implicitly the module that stored it (`Lean/ExtraModUses.lean:20-34, 43-49`). `m`'s module can
+   only say "users of `m` need me", which is already true, and `F`, compiled earlier, cannot
+   mention `m`. Lean would need an entry that names its target module. Two gaps remain even then:
+   term and command elaborators do not record their own declaration at use sites (only the syntax
+   kinds, `Lean/Elab/Command.lean:625`), and indirect uses are not transitive, so a quotation in a
+   helper such as `mkFoo : MetaM Syntax` would be filed under the helper, not the macro calling it.
+   Agitate cannot emulate this part per declaration: a use site's recorded `ExtraModUse` has no
+   declaration name (`Lean/ExtraModUses.lean:56`), only a module.
 
 Still open:
 

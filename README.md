@@ -37,8 +37,8 @@ The options match `lake shake`: `--keep-implied`, `--keep-prefix`, `--keep-publi
 
 * `--profile`: print per-phase timings to stderr (runs the phases one after another).
 * `--compat`: behave exactly like `lake shake`: `--upstream-reserved`, `--ignore-reserved-refs`,
-  `--ignore-implemented-by`, `--upstream-duplicates` and `--upstream-indirect`, with no ignored
-  indirect kinds.
+  `--ignore-implemented-by`, `--upstream-duplicates`, `--ignore-preresolved` and
+  `--upstream-indirect`, with no ignored indirect kinds.
 * `--upstream-reserved`: compute reserved names exactly as `lake shake` does, quirks included.
 * `--ignore-reserved-refs`: drop references to reserved names, as `lake shake` does, instead of
   counting them as references to the declaration they are regenerated from.
@@ -48,6 +48,11 @@ The options match `lake shake`: `--keep-implied`, `--keep-prefix`, `--keep-publi
   theorems up to binder annotations) to the first declarer, as `lake shake` does. By default a
   module's own declaration wins, then the copy its environment showed (the last loaded); upstream
   can add an import from outside the module's closure, or keep a copy that elaborates differently.
+* `--ignore-preresolved`: do not count names that syntax quotations preresolved, as `lake shake`
+  does. By default, `` `(foo) `` in a macro or other metaprogram needs `foo`'s module: non-meta,
+  and public if the declaration containing the quotation is exported. Lean records nothing for it,
+  so upstream can remove the import, after which every expansion fails with
+  ``Unknown identifier `foo✝` `` (see `DESIGN.md`, "Preresolved names in quotations").
 * `--upstream-indirect`: count an indirect module use only when the recording module is reached
   through an import of exactly the needed kind, as `lake shake` does. By default a public import
   also satisfies a private need.
@@ -63,8 +68,8 @@ date. The exit code is 1 if any edits are suggested (without `--fix`), and 0 oth
 ```
 
 Non-module imports re-export everything, so there is one kind of need and no `public`/`meta`:
-needed modules are the declarers of referenced constants, recorded extra uses (notation, `simp`
-lemmas, …) and reachable indirect uses. It takes the options above except `--keep-public`,
+needed modules are the declarers of referenced constants and of names preresolved by quotations,
+recorded extra uses (notation, `simp` lemmas, …) and reachable indirect uses. It takes the options above except `--keep-public`,
 `--add-public`, `--upstream-indirect` and `--compat`. `shake: keep` goes on an import line as
 usual; `shake: keep-all` and `shake: keep-downstream` go in any comment in the header, since there
 is no `module` token to attach them to. Imports of module-system code (such as core) work as usual.
@@ -107,6 +112,8 @@ The options above for import analysis also apply, except `--keep-public`, `--add
   * `Agitate/Index.lean`: reads the modules' oleans and answers the queries shake needs.
   * `Agitate/Reserved.lean`: the reserved-name predicates, ported from core.
   * `Agitate/Refs.lean`: resolving referenced constants to modules.
+  * `Agitate/Preresolved.lean`: needs from names preresolved by syntax quotations, a workaround
+    for uses Lean does not record.
   * `Agitate/Bitset.lean`, `Agitate/Header.lean`: module sets, and source headers and `--fix`.
 * `Agitate/Shake.lean` (with `Main.lean`): `agitate`'s analysis, adapted from upstream
   `Lake/CLI/Shake.lean`. Changes are marked `agitate`.
@@ -132,12 +139,13 @@ The options above for import analysis also apply, except `--keep-public`, `--add
   `--fix`. `lake shake --fix` and `agitate --compat --fix` must leave identical sources. agitate's
   default `--fix` result must build, while upstream's is known not to (an upstream bug, see
   `DESIGN.md`). Ignoring the `simp` kind must still build; ignoring the `instance` kind must not.
+  With `--ignore-preresolved`, the result must fail at `Fixture/QuotUse.lean`.
 * `scripts/test-fixture-nonmodule.sh` tests `agitate-nonmodule` without an oracle, and `modulate`.
   Without `--meta`, the converted fixture must fail at `Fixture/MetaMacro.lean`; with
   `--meta Fixture.MetaMacro`, it must build. It checks
   golden outputs (`UPDATE=1` rewrites them; review the diff). The `--fix` results must build, and a
   second run must suggest nothing. Ignoring `simp` indirect uses must still build; ignoring
-  `instance` must not.
+  `instance` must not, and neither must `--ignore-preresolved` (at `Fixture/QuotUse.lean`).
 * `scripts/test-batteries-nonmodule.sh <batteries-dir>` converts a copy of Batteries to non-module
   code (`demodularize.py` plus three documented patches), then checks that it builds, that the
   `--fix` result builds, and that a second run suggests nothing.

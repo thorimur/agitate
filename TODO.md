@@ -14,6 +14,10 @@
 * End-to-end validation on Mathlib: apply `agitate --fix` to a copy of Mathlib `v4.33.1` and build
   it. This checks that the suggestions actually compile, which no test has done at Mathlib scale.
   It takes hours of machine time, so ask Thomas before running it.
+* Preresolved names: propose the Lean-side fix (DESIGN.md, "Preresolved names in quotations"):
+  `quoteSyntax` records extra module uses, plus indirect uses that name their target module. Once
+  Lean records them, delete `Agitate/Preresolved.lean` and `--ignore-preresolved`. Ask Thomas
+  before reporting anything upstream.
 * Report the two reserved-name quirks upstream, and possibly the reserved-reference redirect.
   Deferred: Thomas does not want anything reported for now.
 * `modulate`: automate the Batteries round trip (DESIGN.md, "Converting non-module files"),

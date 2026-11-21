@@ -24,6 +24,7 @@ public import Agitate.Args
 public import Agitate.Bitset
 public import Agitate.Header
 public import Agitate.Refs
+public import Agitate.Preresolved
 import Init.Data.Range.Polymorphic.Iterators
 
 open Lean
@@ -64,7 +65,8 @@ def initState (ix : Index) (args : Args) : State := Id.run do
                          reservedRefsToBase := args.reservedRefsToBase,
                          indirectModUses := ix.indirectModUsesExcept ignore,
                          implementedByNeeds := args.implementedByNeeds,
-                         resolveDuplicates := args.resolveDuplicates }
+                         resolveDuplicates := args.resolveDuplicates,
+                         preresolvedNeeds := args.preresolvedNeeds }
   let mut transDeps : Array Bitset := #[]
   for i in 0...ix.size do
     let mut t : Bitset := ∅
@@ -75,7 +77,8 @@ def initState (ix : Index) (args : Args) : State := Id.run do
 
 /--
 The modules that module `i` needs: declarers of the constants its terms refer to (resolved once per
-distinct name, see `resolveRef`), indirect uses it already reaches, and recorded extra module uses.
+distinct name, see `resolveRef`), indirect uses it already reaches, recorded extra module uses, and
+the declarers of names its quotations preresolved (`Agitate.Preresolved`).
 -/
 def calcNeeds (s : State) (i : ModuleIdx) : Bitset := Id.run do
   let mut acc : Bitset × Std.HashMap Name (Option Resolved) := (∅, {})
@@ -89,6 +92,11 @@ def calcNeeds (s : State) (i : ModuleIdx) : Bitset := Id.run do
       if j != i then
         acc := (acc.1.insert j, acc.2)
   let mut needs := acc.1
+  -- names preresolved by quotations (`Agitate.Preresolved`), scanned only if mentioned at all
+  if Preresolved.mayHave acc.2.contains then
+    for ci in s.ix.constants i do
+      for (_, j) in Preresolved.uses s.refs order i ci do
+        needs := needs.insert j
   for use in s.ix.getExtraModUses i do
     if let some j := s.ix.getModuleIdx? use.module then
       needs := needs.insert j
@@ -123,6 +131,8 @@ def getExplanations (s : State) (i : ModuleIdx) : Std.HashMap ModuleIdx (Option 
     if let some (g, j, _) := implementedByTarget? s.refs ci.name then
       if j != i then
         deps := add j ci.name g deps
+    for (n, j) in Preresolved.uses s.refs order i ci do
+      deps := add j ci.name n deps
   for use in s.ix.getExtraModUses i do
     if let some j := s.ix.getModuleIdx? use.module then
       if !deps.contains j then

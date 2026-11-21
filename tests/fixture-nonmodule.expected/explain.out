@@ -133,7 +133,7 @@ Fixture/Notation.lean:
   note: `import Init` required
     because of the implicit `Init` import
   note: `import Fixture.A` required
-    because of additional compile-time dependencies
+    because `_aux_Fixture_Notation___macroRules_term𝔸_1` refers to `a`
 Fixture/NotationUse.lean:
   note: `import Init` required
     because of the implicit `Init` import
@@ -154,6 +154,19 @@ Fixture/PrefixUse.lean:
     because of the implicit `Init` import
   note: `import Fixture.Pre.Impl` required
     because `prefixUse` refers to `impl`
+Fixture/QuotTarget.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/QuotMacro.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.QuotTarget` required
+    because `_aux_Fixture_QuotMacro___macroRules_termQuot_target_1` refers to `quotTarget`
+Fixture/QuotUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.QuotMacro` required
+    because of additional compile-time dependencies
 Fixture/SimpAttr.lean:
   note: `import Init` required
     because of the implicit `Init` import
@@ -245,6 +258,12 @@ Fixture.lean:
   note: `import Fixture.Pre.Impl` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.PrefixUse` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.QuotMacro` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.QuotTarget` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.QuotUse` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.SimpAttr` required
     because of `--only` / `shake: keep-all`

@@ -12,6 +12,8 @@
 #    (`simp` records its own extra module uses, `Fixture/SimpUse.lean`); with
 #    `--ignore-indirect-kind instance` it must fail (`Fixture/InstUse.lean`: instance resolution
 #    records nothing, so only the indirect use keeps the import).
+# 4. Preresolved names: with `--ignore-preresolved` the `--fix` result must fail at
+#    `Fixture/QuotUse.lean` (a quotation's only use of an import, `Fixture/QuotMacro.lean`).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 (cd "$root" && lake build agitate >/dev/null)
@@ -38,13 +40,14 @@ for flags in "" "--explain" "--add-public" "--keep-prefix" "--add-public --keep-
 done
 
 echo "== --fix"
-for d in lake compat default noSimp noInstance; do cp -R "$work/base" "$work/$d"; done
+for d in lake compat default noSimp noInstance noPreresolved; do cp -R "$work/base" "$work/$d"; done
 norm() { sed "s#$1/##g"; }
 (cd "$work/lake" && lake shake --force --fix Fixture 2>&1 | norm "$work/lake") > "$work/lake.out" || true
 (cd "$work/compat" && lake env "$agitate" --compat --fix Fixture 2>&1 | norm "$work/compat") > "$work/compat.out" || true
 (cd "$work/default" && lake env "$agitate" --fix Fixture 2>&1 | norm "$work/default") > /dev/null || true
 (cd "$work/noSimp" && lake env "$agitate" --ignore-indirect-kind simp --fix Fixture 2>&1 | norm "$work/noSimp") > /dev/null || true
 (cd "$work/noInstance" && lake env "$agitate" --ignore-indirect-kind instance --fix Fixture 2>&1 | norm "$work/noInstance") > /dev/null || true
+(cd "$work/noPreresolved" && lake env "$agitate" --ignore-preresolved --fix Fixture 2>&1 | norm "$work/noPreresolved") > /dev/null || true
 if cmp -s "$work/lake.out" "$work/compat.out"; then echo "fix output: identical"
 else echo "fix output: DIFFERENT"; diff "$work/lake.out" "$work/compat.out" | head; fail=1; fi
 if diff -r -x .lake "$work/lake" "$work/compat" > "$work/fix.diff"; then echo "fixed sources: identical"
@@ -67,6 +70,11 @@ if (cd "$work/noInstance" && lake build > "$work/noInstance.build" 2>&1); then
   echo "--ignore-indirect-kind instance --fix result: builds (UNEXPECTED)"; fail=1
 else
   echo "--ignore-indirect-kind instance --fix result: fails to build, as expected ($(grep -m1 -o 'Fixture/[A-Za-z/]*\.lean' "$work/noInstance.build"))"
+fi
+if (cd "$work/noPreresolved" && lake build Fixture.QuotUse > "$work/noPreresolved.build" 2>&1); then
+  echo "--ignore-preresolved --fix result: Fixture/QuotUse.lean builds (UNEXPECTED)"; fail=1
+else
+  echo "--ignore-preresolved --fix result: Fixture/QuotUse.lean fails to build, as expected"
 fi
 echo "== stale sources (oleans are trusted, not checked)"
 cp -R "$work/base" "$work/stale"

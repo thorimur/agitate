@@ -70,6 +70,14 @@ structure Args where
   -/
   resolveDuplicates : Bool := true
   /--
+  Count a name that a syntax quotation preresolved (`` `(foo) `` in a `macro`, elaborator, …) as
+  an extra module use of its declaring module: non-meta, public if the declaration containing the
+  quotation is. Lean records nothing for it, so upstream removes an import used only that way, and
+  every expansion of the quotation then fails (`Agitate.Preresolved`). `false`
+  (`--ignore-preresolved`) restores upstream behaviour (`agitate` addition, DESIGN.md).
+  -/
+  preresolvedNeeds : Bool := true
+  /--
   `modulate`: compute, for each selected non-module file, the module-system imports it would need as
   a `module` with `@[expose] public section` (or `public meta section`, see `metaGlobs`), and with
   `--fix` convert it (`agitate` addition, DESIGN.md "Converting non-module files: `modulate`").
@@ -124,8 +132,8 @@ For each selected non-module file, computes the imports it needs as a `module` w
                    count an indirect module use only if the module reaches the recording module
                    through an import of exactly the same kind, as `lake shake` does
   --compat         behave exactly like `lake shake`: `--upstream-reserved --ignore-reserved-refs
-                   --upstream-indirect --ignore-implemented-by --upstream-duplicates` and no
-                   ignored indirect kinds (later options override)"
+                   --upstream-indirect --ignore-implemented-by --upstream-duplicates
+                   --ignore-preresolved` and no ignored indirect kinds (later options override)"
   s!"{header}
 
 USAGE:
@@ -156,6 +164,9 @@ OPTIONS:
   --upstream-duplicates
                    charge every use of a name declared in several modules to the first declarer,
                    as `lake shake` does, instead of the module itself or the copy it saw
+  --ignore-preresolved
+                   do not count names that syntax quotations preresolved (`` `(foo) ``) as needed,
+                   as `lake shake` does (expanding the quotation may then fail)
   --ignore-indirect-kind <KIND>
                    ignore indirect module uses recorded by attribute KIND (repeatable; `*` for all)
   --list-indirect-kinds
@@ -178,6 +189,7 @@ partial def parseArgs (tool : Tool) (args : Args) : List String → Except Strin
   | "--ignore-reserved-refs" :: rest => parseArgs tool { args with reservedRefsToBase := false } rest
   | "--ignore-implemented-by" :: rest => parseArgs tool { args with implementedByNeeds := false } rest
   | "--upstream-duplicates" :: rest => parseArgs tool { args with resolveDuplicates := false } rest
+  | "--ignore-preresolved" :: rest => parseArgs tool { args with preresolvedNeeds := false } rest
   | ["--ignore-indirect-kind"] => .error "missing argument to `--ignore-indirect-kind`"
   | "--ignore-indirect-kind" :: kind :: rest =>
     parseArgs tool { args with ignoreIndirectKinds := args.ignoreIndirectKinds.push kind } rest
@@ -198,7 +210,8 @@ partial def parseArgs (tool : Tool) (args : Args) : List String → Except Strin
     | .module, "--compat" =>
       parseArgs tool { args with upstreamReserved := true, reservedRefsToBase := false,
                                  ignoreIndirectKinds := #[], indirectViaPublic := false,
-                                 implementedByNeeds := false, resolveDuplicates := false } rest
+                                 implementedByNeeds := false, resolveDuplicates := false,
+                                 preresolvedNeeds := false } rest
     | _, _ =>
       if arg.startsWith "-" then .error s!"unknown option `{arg}`"
       else parseArgs tool { args with mods := args.mods.push arg.toName } rest

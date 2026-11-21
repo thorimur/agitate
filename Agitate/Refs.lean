@@ -32,6 +32,8 @@ structure RefCtx where
   implementedByNeeds : Bool
   /-- See `Args.resolveDuplicates`. -/
   resolveDuplicates : Bool
+  /-- See `Args.preresolvedNeeds`. -/
+  preresolvedNeeds : Bool
   /--
   `modulate`: files converted with `public meta section`, whose declarations will all be meta
   (`Args.metaGlobs`). References to them count as references to meta declarations.

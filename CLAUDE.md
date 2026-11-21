@@ -5,7 +5,7 @@
 * Parity with `lake shake` (same toolchain) is the correctness bar, except for deliberate fixes,
   which Thomas prefers over reproducing upstream bugs. Each fix must be recorded in DESIGN.md and
   must keep an upstream-compatible flag.
-* After changes to shared code (`Agitate/{Args,Bitset,Header,Index,Refs,Reserved}.lean`), to
+* After changes to shared code (`Agitate/{Args,Bitset,Header,Index,Preresolved,Refs,Reserved}.lean`), to
   `Agitate/NonModule.lean`, or to `modulate` (conversion code in `Agitate/Shake.lean`), run `scripts/test-fixture-nonmodule.sh` and
   `scripts/test-batteries-nonmodule.sh <mathlib4>/.lake/packages/batteries`.
 * After changes to module resolution (`Agitate/Workspace.lean`, `Agitate/Args.lean`), also run

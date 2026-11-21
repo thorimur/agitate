@@ -39,6 +39,11 @@ public import Fixture.Pre
 public import Fixture.Pre.Impl
 public import Fixture.PrefixUse
 public import Fixture.PrivateUse
+public import Fixture.QuotHelper
+public import Fixture.QuotHelperTarget
+public import Fixture.QuotMacro
+public import Fixture.QuotTarget
+public import Fixture.QuotUse
 public import Fixture.SimpAttr
 public import Fixture.SimpUse
 public import Fixture.Unused

@@ -7,6 +7,7 @@
 #    them, review the diff before committing);
 # 2. `--fix` results (default and `--keep-prefix`) must build, and a second run must suggest nothing;
 # 3. with `--ignore-indirect-kind simp` the `--fix` result must build, with `instance` it must not;
+#    with `--ignore-preresolved` it must fail at `Fixture/QuotUse.lean` (`Fixture/QuotMacro.lean`);
 # 4. `modulate`: without `--meta` the converted fixture must fail (`Fixture/MetaMacro.lean` needs a
 #    meta section); with `--meta Fixture.MetaMacro` it must build. Golden outputs: `modulate`'s
 #    suggestions, and module-mode `agitate` on the converted result (`modulate-then-agitate.out`).
@@ -62,6 +63,11 @@ for kind in simp instance; do
     *) echo "--ignore-indirect-kind $kind --fix result: UNEXPECTED (builds: $built)"; fail=1 ;;
   esac
 done
+d="$work/noPreresolved"; cp -R "$work/base" "$d"
+run "$d" --ignore-preresolved --fix Fixture > /dev/null
+if (cd "$d" && lake build Fixture.QuotUse > build.log 2>&1); then
+  echo "--ignore-preresolved --fix result: Fixture/QuotUse.lean builds (UNEXPECTED)"; fail=1
+else echo "--ignore-preresolved --fix result: Fixture/QuotUse.lean fails to build, as expected"; fi
 echo "== modulate (convert to the module system)"
 modulate="$root/.lake/build/bin/modulate"
 (cd "$root" && lake build modulate >/dev/null)

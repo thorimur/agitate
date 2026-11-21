@@ -37,6 +37,9 @@ import Fixture.NotationUse
 import Fixture.Pre
 import Fixture.Pre.Impl
 import Fixture.PrefixUse
+import Fixture.QuotMacro
+import Fixture.QuotTarget
+import Fixture.QuotUse
 import Fixture.SimpAttr
 import Fixture.SimpUse
 import Fixture.Unused
