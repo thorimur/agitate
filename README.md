@@ -73,6 +73,33 @@ Shake cannot see dependencies that leave no trace in the oleans, such as `open` 
 whose declarations are otherwise unused. Mark such imports `-- shake: keep`. `lake shake` has the
 same blind spot.
 
+## Converting to the module system: `modulate`
+
+```
+/path/to/agitate/.lake/build/bin/modulate [OPTIONS] [--meta GLOB]... [MODULE...]
+```
+
+For each selected non-module file, `modulate` computes from the oleans the imports it would need
+as a `module` with `@[expose] public section`, and with `--fix` converts it:
+* `module` goes before the imports (with any `shake: keep-all`/`keep-downstream` marker);
+* the imports are rewritten in module syntax (`public import`, `import`, `public meta import`, …);
+* `@[expose] public section` goes after them, or after an initial module docstring.
+
+`--meta GLOB` (repeatable; Lake globs: `Foo`, `Foo.*` for `Foo` and its submodules, `Foo.+` for
+its submodules only) converts the matching files with `public meta section` instead. Use it for
+files of metaprograms whose meta-ness nothing records, such as `@[macro …] def` (the `macro`,
+`elab` and `syntax` commands are recognised without it). Like core's `script/Modulize.lean`, but
+with computed imports and module names instead of paths.
+
+A file can only be converted together with every non-module file it imports. Conversion can still
+fail where a module needs more than imports:
+* `import all`, for proofs that unfold another module's non-exposed definitions;
+* no `private` declarations in exposed bodies;
+* split meta and non-meta sections, for files that mix both.
+
+The options above for import analysis also apply, except `--keep-public`, `--add-public`,
+`--upstream-indirect` and `--compat`.
+
 ## Layout
 
 * Shared by both tools:
@@ -84,6 +111,8 @@ same blind spot.
 * `Agitate/Shake.lean` (with `Main.lean`): `agitate`'s analysis, adapted from upstream
   `Lake/CLI/Shake.lean`. Changes are marked `agitate`.
 * `Agitate/NonModule.lean` (with `NonModuleMain.lean`): `agitate-nonmodule`'s single-kind analysis.
+* `ModulateMain.lean`: `modulate`, which runs `agitate`'s analysis on non-module oleans
+  (`State.converting`).
 * `AgitateCheck.lean`: `agitate-check`, the differential checker for the index (below).
 * `tests/fixture`, `tests/fixture-nonmodule`: small workspaces whose modules each exercise one
   behaviour (comments say which). `tests/fixture-nonmodule.expected` holds the non-module golden
@@ -103,7 +132,9 @@ same blind spot.
   `--fix`. `lake shake --fix` and `agitate --compat --fix` must leave identical sources. agitate's
   default `--fix` result must build, while upstream's is known not to (an upstream bug, see
   `DESIGN.md`). Ignoring the `simp` kind must still build; ignoring the `instance` kind must not.
-* `scripts/test-fixture-nonmodule.sh` tests `agitate-nonmodule` without an oracle. It checks
+* `scripts/test-fixture-nonmodule.sh` tests `agitate-nonmodule` without an oracle, and `modulate`.
+  Without `--meta`, the converted fixture must fail at `Fixture/MetaMacro.lean`; with
+  `--meta Fixture.MetaMacro`, it must build. It checks
   golden outputs (`UPDATE=1` rewrites them; review the diff). The `--fix` results must build, and a
   second run must suggest nothing. Ignoring `simp` indirect uses must still build; ignoring
   `instance` must not.

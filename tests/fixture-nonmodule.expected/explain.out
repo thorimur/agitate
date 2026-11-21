@@ -99,6 +99,19 @@ Fixture/KeepAll.lean:
     because `keepAll` refers to `a`
   note: `import Fixture.C` required
     because of `--only` / `shake: keep-all`
+Fixture/MetaHelper.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/MetaMacro.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.MetaHelper` required
+    because `helperImpl` refers to `helperVal`
+Fixture/MetaUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.MetaMacro` required
+    because of additional compile-time dependencies
 Fixture/Missing.lean:
   remove #[import Fixture.C]
   add #[import Fixture.A]
@@ -210,6 +223,12 @@ Fixture.lean:
   note: `import Fixture.Keep` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.KeepAll` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.MetaHelper` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.MetaMacro` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.MetaUse` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.Missing` required
     because of `--only` / `shake: keep-all`

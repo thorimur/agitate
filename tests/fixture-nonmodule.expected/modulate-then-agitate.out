@@ -1,0 +1,3 @@
+Fixture/SimpUse.lean:
+  remove #[public import Fixture.SimpAttr]
+  add #[import Fixture.SimpAttr, public import Fixture.A]

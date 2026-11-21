@@ -1,7 +1,7 @@
 name = "agitate"
 version = "0.1.0"
 license = "Apache-2.0"
-defaultTargets = ["agitate", "agitate-nonmodule", "agitate-check"]
+defaultTargets = ["agitate", "agitate-nonmodule", "modulate", "agitate-check"]
 
 [[lean_lib]]
 name = "Agitate"
@@ -22,4 +22,10 @@ supportInterpreter = true
 [[lean_exe]]
 name = "agitate-nonmodule"
 root = "NonModuleMain"
+supportInterpreter = true
+
+# Converts non-module files to the module system (`modulize` + `agitate`; see Agitate/Shake.lean).
+[[lean_exe]]
+name = "modulate"
+root = "ModulateMain"
 supportInterpreter = true

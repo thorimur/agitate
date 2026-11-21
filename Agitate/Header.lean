@@ -134,6 +134,63 @@ def applyEdits (edits : Edits) (modNames : Array Name)
     count := count + 1
   return count
 
+/-- Whether a comment in the header (anywhere before the end of the imports) contains `marker`.
+Non-module files have no `module` token to attach `shake: keep-all`/`keep-downstream` to. -/
+def headerHasMarker (h : ParsedHeader) (marker : String) : Bool :=
+  let ⟨_, ictx, _, endPos⟩ := h
+  (ictx.fileMap.source.extract ictx.fileMap.source.startPos endPos).contains marker
+
+/--
+Rewrites a non-module source file as a module, for `modulate --fix` (`agitate` addition; the
+layout follows core's `script/Modulize.lean`):
+* `module` where the header starts. Text before it (comments) is kept, and `shake: keep-all` /
+  `shake: keep-downstream` markers found in header comments are repeated on the `module` line,
+  where module-mode shake reads them.
+* `prelude` if the file had it.
+* `imports`, one per line in module syntax. A kept import keeps the trailing comment on its line
+  (e.g. `-- shake: keep`); comment lines between imports are dropped.
+* `@[expose] public section`, or `public meta section` if `isMeta`, below an initial module
+  docstring if there is one, else below the imports; none if no command follows the header.
+-/
+def convertToModuleText (h : ParsedHeader) (imports : Array Import) (isMeta : Bool) : IO String := do
+  let ⟨_, ictx, stx, insertion⟩ := h
+  let text := ictx.fileMap.source
+  let (_, prelude?, importStxs) := decodeHeader stx
+  let (_, parserState, msgs) ← Parser.parseHeader ictx
+  let (initCmd, _, msgs') :=
+    Parser.parseCommand ictx { env := ← mkEmptyEnvironment, options := {} } parserState msgs
+  let hasCommands := !initCmd.isOfKind ``Parser.Command.eoi || msgs'.hasErrors
+  let docEnd? := guard (initCmd.isOfKind ``Parser.Command.moduleDoc) *> initCmd.getTailPos?
+  let mut comments : Std.HashMap Name String := {}
+  for s in importStxs do
+    if let some tr := s.raw.getTrailing? then
+      let line := (tr.toString.splitOn "\n").headD ""
+      if line.contains "--" then
+        comments := comments.insert (decodeImport s).module (" " ++ line.trimAscii.copy)
+  -- the header starts at its first token, or after the leading whitespace and comments
+  let start := text.pos! (stx.raw.getPos?.getD parserState.pos)
+  -- `insertion` is just after the line of the last header token
+  let headerEnd := if stx.raw.getPos?.isSome then insertion else start
+  let markers := ["shake: keep-all", "shake: keep-downstream"].filter (headerHasMarker h ·)
+  let mut out := text.extract text.startPos start
+  if !out.trimAscii.isEmpty then
+    out := out.trimAsciiEnd.copy ++ "\n"
+  out := out ++ "module" ++ (if markers.isEmpty then "" else " -- " ++ ", ".intercalate markers) ++ "\n\n"
+  if prelude?.isSome then
+    out := out ++ "prelude\n"
+  for imp in imports do
+    out := out ++ s!"{imp}" ++ comments.getD imp.module "" ++ "\n"
+  let body := text.extract headerEnd text.endPos
+  if !hasCommands then
+    return out ++ body
+  let sec := if isMeta then "public meta section" else "@[expose] public section"
+  match docEnd? with
+  | some p =>
+    let p := text.pos! p
+    return out ++ text.extract headerEnd p ++ "\n\n" ++ sec ++ text.extract p text.endPos
+  | none =>
+    return out ++ "\n" ++ sec ++ "\n" ++ (if body.startsWith "\n" then body else "\n" ++ body)
+
 /-- Parses the headers of the modules selected by `pkgs`, in parallel (others get a dummy). -/
 def parseHeaders (pkgs : Array Name) (source? : Name → IO (Option System.FilePath))
     (modNames : Array Name) :

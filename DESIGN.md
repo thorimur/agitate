@@ -28,6 +28,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | License the repository under Apache 2.0, with copyright headers; files copied or ported from Lean keep their original notices and describe their changes. | Thomas | done |
 | Resolve modules through the Lake workspace (root package first, then the toolchain), never `LEAN_PATH`/`LEAN_SRC_PATH`; default to the root's default target roots. | Thomas | implemented |
 | For a name declared in several modules, charge a use to the module itself if it declares the name, else to the copy its environment showed (core's last-loaded rule over its own load order); `--upstream-duplicates` restores first-declarer resolution. | Thomas (reported by other sessions; design by Claude, last-loaded rule by Thomas) | implemented |
+| `modulate`: from a non-module file's oleans, compute the module-system imports it would need under `@[expose] public section`, and with `--fix` convert it; `--meta GLOB` (Lake globs, module names) for `public meta section`. | Thomas (feature, name, globs), Claude (design) | implemented |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
 | Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
@@ -481,6 +482,55 @@ The options considered before that decision:
 3. Detect the hazard generally. If a selected module's olean or source resolves in more than one
    search-path entry, error out (or refuse `--fix`) rather than silently analysing or editing the
    wrong one.
+
+## Converting non-module files: `modulate`
+
+A non-module olean records every import as `isExported := true` (`Lean/Elab/Import.lean:38`), so in
+module terms a non-module file already looks like a module whose imports are all `public import`s.
+`modulate` (`ModulateMain.lean`) therefore runs `agitate`'s module-system analysis
+(`Agitate/Shake.lean`) on non-module oleans (`Args.toModule`, `State.converting`), with these
+changes:
+
+* **Hypothetical visibility** (`State.convertedVisibility`), as under `@[expose] public section`:
+  non-private declarations are exported; definitions are exposed, and so are the proofs
+  abstracted from them (`d._proof_N`), since the module system checks those as part of the exposed
+  body; theorem proofs and `opaque` values are private. For `--meta` files (`public meta section`)
+  every declaration counts as exported and exposed, private ones included. Importers evaluating a
+  public meta definition need the code of everything it calls, so Lean requires
+  `public meta import` even for what only private helpers reference (over-approximates for
+  unreachable private helpers).
+* **Meta.** Declarations of `--meta` files count as meta for their users (`RefCtx.metaModules`).
+  References to them need no `meta import`, and a compile-time extra use of such a file needs
+  none either. Macros, elaborators and syntax made by the `macro`/`elab`/`syntax` commands are
+  recorded as meta even in non-module oleans, so their compile-time uses already come out as
+  `meta import`s. `--meta` is for metaprograms nothing records, e.g. `@[macro …] def`.
+* **Extra module uses** recorded in non-module elaboration carry no exporting context, so they count
+  as public (conservative). On the converted fixture, module-mode `agitate` then finds exactly one
+  import that could be private (`Fixture/SimpUse.lean`); everything builds.
+* **Closure.** A module cannot import a non-module file, so a file is converted only if every
+  non-module file it imports is converted in the same run (`State.notConverted`).
+* **Markers.** `shake: keep-all`/`keep-downstream` are read from header comments (there is no
+  `module` token) and written onto the `module` line.
+* **`--fix`** (`convertToModuleText`). Layout as in core's `script/Modulize.lean`: `module` after
+  the header comments; the computed imports; the section below an initial module docstring if any,
+  else below the imports; no section without commands. Kept imports keep their trailing comments.
+
+**Tests.** `scripts/test-fixture-nonmodule.sh` converts the non-module fixture. It checks that the
+result builds with `--meta Fixture.MetaMacro` (an `@[macro …] def`) and fails without it, and keeps
+golden files of `modulate`'s suggestions and of module-mode `agitate` on the converted result.
+
+**Batteries round trip** (by hand). The converted non-module Batteries (see
+`test-batteries-nonmodule.sh`) was converted back with `modulate`, `--meta` for the 31 files the
+original Batteries has `public meta section` in, and built. Core's `script/Modulize.lean` with the
+same sections, which keeps every import and makes it public, served as the comparison.
+* **Initially** `modulate` failed in 5 files `modulize` did not. Both causes were import kinds,
+  fixed by the visibility rules above: proofs abstracted from exposed definitions, and private
+  helpers of public meta code.
+* **Now** `modulate` fails in 16 files, a subset of `modulize`'s 17, so none of its failures are
+  its own. The remaining failures are conversion semantics no import set fixes: proofs unfolding
+  non-exposed definitions (`import all`), `private` declarations in exposed bodies, and files
+  mixing meta and non-meta code. Lake skips dependents of failed modules, so these are lower
+  bounds.
 
 ## Rejected / deferred
 

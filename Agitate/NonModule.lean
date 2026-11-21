@@ -147,12 +147,6 @@ where
     then deps.insert j (some (use, def_))
     else deps
 
-/-- Whether a comment in the header (anywhere before the end of the imports) contains `marker`.
-Non-module files have no `module` token to attach `shake: keep-all`/`keep-downstream` to. -/
-def headerHasMarker (h : ParsedHeader) (marker : String) : Bool :=
-  let ⟨_, ictx, _, endPos⟩ := h
-  (ictx.fileMap.source.extract ictx.fileMap.source.startPos endPos).contains marker
-
 /-- Analyze and report on module `i`; the single-kind version of `Agitate.Shake.visitModule`. -/
 def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePath)) (i : ModuleIdx)
     (needs : Bitset)

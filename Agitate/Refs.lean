@@ -32,6 +32,11 @@ structure RefCtx where
   implementedByNeeds : Bool
   /-- See `Args.resolveDuplicates`. -/
   resolveDuplicates : Bool
+  /--
+  `modulate`: files converted with `public meta section`, whose declarations will all be meta
+  (`Args.metaGlobs`). References to them count as references to meta declarations.
+  -/
+  metaModules : Std.HashSet ModuleIdx := {}
 
 def isDeclMeta' (ix : Index) (declName : Name) : Bool :=
   -- Matchers are not compiled by themselves but inlined by the compiler, so there is no IR decl
@@ -83,7 +88,7 @@ structure Resolved where
 def resolveRef (s : RefCtx) (ref : Name) : Option Resolved := do
   let c ← getDepConstName? s ref
   let j ← s.ix.getModuleIdxFor? c
-  return { name := c, mod := j, isMeta := isDeclMeta' s.ix c,
+  return { name := c, mod := j, isMeta := isDeclMeta' s.ix c || s.metaModules.contains j,
            indirect := s.indirectModUses[c]?.getD #[],
            decls := if s.resolveDuplicates then s.ix.dupDecls[c]?.getD #[] else #[] }
 

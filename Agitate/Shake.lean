@@ -129,6 +129,14 @@ structure State where
   implementedByNeeds : Bool
   /-- See `Args.resolveDuplicates`. -/
   resolveDuplicates : Bool
+  /-- See `Args.toModule`. -/
+  toModule : Bool := false
+  /-- `modulate`: the module-system imports of each converted file, and whether it becomes meta. -/
+  conversions : Std.HashMap Name (Array Import × Bool) := {}
+  /-- `modulate`: converted files that become `public meta section` (`Args.metaGlobs`). -/
+  metaModules : Std.HashSet ModuleIdx := {}
+  /-- `modulate`: non-module files that could not be converted (their importers cannot be). -/
+  notConverted : Std.HashSet ModuleIdx := {}
   /--
   `transDeps[i]` is the (non-reflexive) transitive closure of `mods[i].imports`. More specifically,
   * `j ∈ transDeps[i].pub` if `i -(public import)->+ j`
@@ -159,7 +167,7 @@ structure State where
 def State.refs (s : State) : RefCtx :=
   { ix := s.ix, reserved := s.reserved, reservedRefsToBase := s.reservedRefsToBase,
     indirectModUses := s.indirectModUses, implementedByNeeds := s.implementedByNeeds,
-    resolveDuplicates := s.resolveDuplicates }
+    resolveDuplicates := s.resolveDuplicates, metaModules := s.metaModules }
 
 /--
 Given module `j`'s transitive dependencies, computes the union of `transImps` and the transitive
@@ -204,6 +212,29 @@ uses; `agitate` also accepts the public version of `k` (`Args.indirectViaPublic`
 def reachesForIndirect (s : State) (i : ModuleIdx) (k : NeedsKind) (j : ModuleIdx) : Bool :=
   s.transDeps[i]!.has k j || (s.indirectViaPublic && s.transDeps[i]!.has { k with isExported := true } j)
 
+/-- `modulate`: whether module `i` is a non-module file being converted (`agitate` addition). -/
+def State.converting (s : State) (i : ModuleIdx) : Bool :=
+  s.toModule && !s.ix.modules[i]!.priv.isModule
+
+/--
+`modulate`: the visibility of a declaration `ci` of a converted module `i`, as `(exported, exposed)`.
+* `@[expose] public section`: non-private declarations are exported, and definitions are exposed,
+  as are the proofs abstracted from them (`d._proof_N`): the module system checks those proofs as
+  part of the exposed body.
+* `public meta section`: every declaration counts as exported and exposed, private ones included.
+  Importers evaluating a public meta definition need the code of everything it calls, so Lean
+  requires `public meta import` even for what only private helpers reference. This over-approximates
+  for private helpers no public code reaches.
+-/
+def State.convertedVisibility (s : State) (i : ModuleIdx) (ci : ConstantInfo) : Bool × Bool :=
+  if s.metaModules.contains i then (true, true) else
+  let exported := !isPrivateName ci.name
+  let auxProofOfExposed := match ci.name with
+    | .str p str => str.startsWith "_proof_" && !isPrivateName p &&
+        (s.ix.find? p matches some (.defnInfo _))
+    | _ => false
+  (exported, exported && (ci matches .defnInfo _ || auxProofOfExposed))
+
 /--
 Calculates the needs for a given module `mod` from constants and recorded extra uses.
 
@@ -215,15 +246,22 @@ def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
   let mut acc : Needs × Std.HashMap Name (Option Resolved) := (default, {})
   -- `agitate`: `i`'s load order, only computed if `i` uses a name declared in several modules
   let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
+  let converting := s.converting i
   for ci in ix.constants i do
     -- Added guard for cases like `structure` that are still exported even if private
     let pubCI? := guard (!isPrivateName ci.name) *> ix.findPublic? ci.name
-    let k := { isExported := pubCI?.isSome, isMeta := isDeclMeta' ix ci.name }
+    -- `agitate` (`modulate`): visibility as under `@[expose] public section`, i.e. non-private
+    -- declarations are public and definitions expose their bodies (theorem proofs never do)
+    let (exported, exposed) := if converting then s.convertedVisibility i ci
+      else (pubCI?.isSome, pubCI?.any (·.hasValue (allowOpaque := true)))
+    -- `modulate --meta`: everything in a `public meta section` is meta
+    let k := { isExported := exported,
+               isMeta := isDeclMeta' ix ci.name || (converting && s.metaModules.contains i) }
     acc := visitExpr order k ci.type acc
     if let some e := ci.value? (allowOpaque := true) then
       -- type and value has identical visibility under `meta`
       let k := if k.isMeta then k else
-        if pubCI?.any (·.hasValue (allowOpaque := true)) then .pub else .priv
+        if exposed then .pub else .priv
       acc := visitExpr order k e acc
     -- `agitate`: the `@[implemented_by]` target, with the declaration's visibility (a compiled
     -- caller in another module needs it, so an exported declaration needs it publicly)
@@ -234,6 +272,13 @@ def calcNeeds (s : State) (i : ModuleIdx) : Needs := Id.run do
   let mut needs := acc.1
   for use in ix.getExtraModUses i do
     let j : Nat := ix.getModuleIdx? use.module |>.get!
+    -- `agitate` (`modulate`): non-module elaboration records no exporting context; count the
+    -- use as public (conservative: everything is public under `@[expose] public section`)
+    -- a compile-time use of a file converted as meta needs no `meta import`: its declarations
+    -- will already be meta
+    let use := if converting then
+        { use with isExported := true, isMeta := use.isMeta && !s.metaModules.contains j }
+      else use
     needs := needs.insert { use with } j
 
   return needs
@@ -267,14 +312,18 @@ def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
   let ix := s.ix
   let mut deps := default
   let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
+  let converting := s.converting i
   for ci in ix.constants i do
     -- Added guard for cases like `structure` that are still exported even if private
     let pubCI? := guard (!isPrivateName ci.name) *> ix.findPublic? ci.name
-    let k := { isExported := pubCI?.isSome, isMeta := isDeclMeta' ix ci.name }
+    let (exported, exposed) := if converting then s.convertedVisibility i ci
+      else (pubCI?.isSome, pubCI?.any (·.hasValue (allowOpaque := true)))
+    let k := { isExported := exported,
+               isMeta := isDeclMeta' ix ci.name || (converting && s.metaModules.contains i) }
     deps := visitExpr order k ci.name ci.type deps
     if let some e := ci.value? (allowOpaque := true) then
       let k := if k.isMeta then k else
-        if pubCI?.any (·.hasValue (allowOpaque := true)) then .pub else .priv
+        if exposed then .pub else .priv
       deps := visitExpr order k ci.name e deps
     if let some (g, j, gMeta) := implementedByTarget? s.refs ci.name then
       if j != i then
@@ -282,6 +331,9 @@ def getExplanations (s : State) (i : ModuleIdx) : Explanations := Id.run do
 
   for use in ix.getExtraModUses i do
     let j := ix.getModuleIdx? use.module |>.get!
+    let use := if converting then
+        { use with isExported := true, isMeta := use.isMeta && !s.metaModules.contains j }
+      else use
     if !deps.contains (j, { use with }) then
       deps := deps.insert (j, { use with }) none
 
@@ -321,6 +373,14 @@ def initState (ix : Index) (args : Args) : State := Id.run do
                  indirectViaPublic := args.indirectViaPublic,
                  implementedByNeeds := args.implementedByNeeds,
                  resolveDuplicates := args.resolveDuplicates,
+                 toModule := args.toModule,
+                 metaModules := Id.run do
+                   let mut ms := {}
+                   if args.toModule then
+                     for j in 0...ix.size do
+                       if !ix.modules[j]!.priv.isModule && args.metaGlobs.any (·.matches (ix.modName j)) then
+                         ms := ms.insert j
+                   return ms,
                  indirectModUses := ix.indirectModUsesExcept ignore }
   for i in 0...ix.size do
     let mut imps := #[]
@@ -342,8 +402,9 @@ def initState (ix : Index) (args : Args) : State := Id.run do
 * `addOnly`: if true, only add missing imports, do not remove unused ones
 -/
 def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePath))
-    (i : Nat) (needs : Needs) (headerStx : TSyntax ``Parser.Module.header) (args : Args)
+    (i : Nat) (needs : Needs) (header : ParsedHeader) (args : Args)
     (addOnly := false) : StateT State IO Unit := do
+  let ⟨_, _, headerStx, _⟩ := header
   let modName := (← get).modNames[i]!
   if (← get).ix.isExtraRevModUse i then
     modify fun s => { s with preserve := s.preserve.insert (if args.addPublic then .pub else .priv) i }
@@ -356,20 +417,40 @@ def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePa
     return
 
   let (module?, prelude?, imports) := decodeHeader headerStx
-  if module?.any (·.raw.getTrailing?.any (·.toString.contains "shake: keep-downstream")) then
+  -- `agitate` (`modulate`): a non-module file has no `module` token; its markers are in header
+  -- comments, and its imports re-export (the olean records them as `public import`s).
+  let converting := (← get).converting i
+  let hasMarker (m : String) :=
+    module?.any (·.raw.getTrailing?.any (·.toString.contains m)) ||
+    (converting && headerHasMarker header m)
+  if hasMarker "shake: keep-downstream" then
     modify fun s => { s with preserve := s.preserve.insert (if args.addPublic then .pub else .priv) i }
 
   let s ← get
 
+  -- `modulate`: a module cannot import a non-module file, so every non-module file this one
+  -- imports must be converted in this run too
+  if converting then
+    for imp in s.ix.imports i do
+      let some j := s.ix.getModuleIdx? imp.module | continue
+      if !s.ix.modules[j]!.priv.isModule &&
+          (!pkgs.any (·.isPrefixOf s.modNames[j]!) || s.notConverted.contains j) then
+        if let some path ← source? modName then println! "{path}:" else println! "{modName}:"
+        println! "  cannot convert to `module`: imports non-module `{s.modNames[j]!}`, which is not \
+          converted in this run"
+        modify fun s => { s with notConverted := s.notConverted.insert i }
+        return
+
   let addOnly := addOnly ||
     (!args.onlyMods.isEmpty && !args.onlyMods.contains modName) ||
-    module?.any (·.raw.getTrailing?.any (·.toString.contains "shake: keep-all"))
+    hasMarker "shake: keep-all"
   let mut deps := needs
   let mut reasons : Reasons := {}
 
   -- Add additional preserved imports
   for impStx in imports do
     let imp := decodeImport impStx
+    let imp := if converting then { imp with isExported := true } else imp
     -- `agitate`: oleans are trusted and not checked for freshness; a source import that is not in
     -- the olean's import closure (source edited since the build) is skipped. Upstream panics here
     -- (`get!`) and continues with a wrong module index; it never gets here without `--force`.
@@ -534,43 +615,58 @@ def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePa
         IO.eprintln s!"`{imp}` is already covered by `{ { imp with isExported := true } }`"
       toRemove := toRemove.push imp
 
-  -- mark and report the removals
-  modify fun s => { s with
-    edits := toRemove.foldl (init := s.edits) fun edits imp =>
-      edits.remove modName imp }
+  if converting then
+    -- `agitate` (`modulate`): report and record the module-system imports instead of edits
+    let final := (s.ix.imports i).filter (fun imp =>
+      !toRemove.contains imp && !(prelude?.isNone && imp.module == `Init)) ++ toAdd
+    let isMetaFile := s.metaModules.contains i
+    let sec := if isMetaFile then "public meta section" else "@[expose] public section"
+    modify fun s => { s with conversions := s.conversions.insert modName (final, isMetaFile) }
+    let path? ← source? modName
+    if let some path := path? then println! "{path}:" else println! "{modName}:"
+    println! "  convert to `module` with `{sec}`, importing {final}"
+    if args.githubStyle then
+      if let some path := path? then
+        println! "{path}:1:1: warning: convert to `module` with `{sec}`, importing {final} \
+          (use `modulate --fix`)"
+  else
+    -- mark and report the removals
+    modify fun s => { s with
+      edits := toRemove.foldl (init := s.edits) fun edits imp =>
+        edits.remove modName imp }
 
-  if !toAdd.isEmpty || !toRemove.isEmpty || args.explain then
-    if let some path ← source? s.modNames[i]! then
-      println! "{path}:"
-    else
-      println! "{s.modNames[i]!}:"
+    if !toAdd.isEmpty || !toRemove.isEmpty || args.explain then
+      if let some path ← source? s.modNames[i]! then
+        println! "{path}:"
+      else
+        println! "{s.modNames[i]!}:"
 
-  if !toRemove.isEmpty then
-    println! "  remove {toRemove}"
+    if !toRemove.isEmpty then
+      println! "  remove {toRemove}"
 
-  if args.githubStyle then
-    try
-      let ⟨path, inputCtx, stx, endHeader⟩ ← parseHeader source? s.modNames[i]!
-      let (_, _, imports) := decodeHeader stx
-      for stx in imports do
-        if toRemove.any fun imp => imp == decodeImport stx then
-          let pos := inputCtx.fileMap.toPosition stx.raw.getPos?.get!
-          println! "{path}:{pos.line}:{pos.column+1}: warning: unused import \
-            (use `lake shake --fix` to fix this, or `lake shake --update` to ignore)"
-      if !toAdd.isEmpty then
-        -- we put the insert message on the beginning of the last import line
-        let pos := inputCtx.fileMap.toPosition endHeader.offset
-        println! "{path}:{pos.line-1}:1: warning: \
-          add {toAdd} instead"
-    catch _ => pure ()
+    if args.githubStyle then
+      try
+        let ⟨path, inputCtx, stx, endHeader⟩ ← parseHeader source? s.modNames[i]!
+        let (_, _, imports) := decodeHeader stx
+        for stx in imports do
+          if toRemove.any fun imp => imp == decodeImport stx then
+            let pos := inputCtx.fileMap.toPosition stx.raw.getPos?.get!
+            println! "{path}:{pos.line}:{pos.column+1}: warning: unused import \
+              (use `lake shake --fix` to fix this, or `lake shake --update` to ignore)"
+        if !toAdd.isEmpty then
+          -- we put the insert message on the beginning of the last import line
+          let pos := inputCtx.fileMap.toPosition endHeader.offset
+          println! "{path}:{pos.line-1}:1: warning: \
+            add {toAdd} instead"
+      catch _ => pure ()
 
-  -- mark and report the additions
-  modify fun s => { s with
-    edits := toAdd.foldl (init := s.edits) fun edits imp =>
-      edits.add s.modNames[i]! imp }
+    -- mark and report the additions
+    modify fun s => { s with
+      edits := toAdd.foldl (init := s.edits) fun edits imp =>
+        edits.add s.modNames[i]! imp }
 
-  if !toAdd.isEmpty then
-    println! "  add {toAdd}"
+    if !toAdd.isEmpty then
+      println! "  add {toAdd}"
 
   -- recalculate transitive dependencies of downstream modules
   let mut newTransDepsI := Needs.empty
@@ -622,7 +718,7 @@ public def run (args : Args) (r : Resolver) : IO UInt32 := do
   let pkgs := mods.map (·.getRoot)
 
   -- Load all the modules (`agitate`: straight from their oleans, see `Agitate.Index`)
-  let modules ← timed "readModules (.olean, .server, .private)" <| readModules r.olean mods
+  let modules ← timed "readModules (.olean, .server, .private)" <| readModules r.olean mods (allowNonModule := args.toModule)
   let ix ← timed "Index.build (constant maps, extension tables)" <| Index.build modules Reserved.extNames
   let s ← timed "initState (transDeps)" <| IO.lazyPure fun _ => initState ix args
   if args.profile then
@@ -657,8 +753,8 @@ public def run (args : Args) (r : Resolver) : IO UInt32 := do
   let t0 ← IO.monoNanosNow
   for i in [0:s.ix.size], t in needs, header in headers do
     match header.get with
-    | .ok ⟨_, _, stx, _⟩ =>
-      visitModule pkgs r.source? i t.get stx args
+    | .ok h =>
+      visitModule pkgs r.source? i t.get h args
     | .error e =>
       println! e.toString
   if args.profile then
@@ -666,10 +762,17 @@ public def run (args : Args) (r : Resolver) : IO UInt32 := do
 
   if !args.fix then
     -- return error if any issues were found
-    return if (← get).edits.isEmpty then 0 else 1
+    return if (← get).edits.isEmpty && (← get).conversions.isEmpty then 0 else 1
 
   -- Apply the edits to existing files
-  let count ← applyEdits (← get).edits s.modNames headers
+  let mut count ← applyEdits (← get).edits s.modNames headers
+  -- `modulate`: rewrite converted files as modules
+  for mod in s.modNames, header? in headers do
+    let some (imports, isMeta) := (← get).conversions[mod]? | continue
+    let .ok h := header?.get | continue
+    let ⟨path, _, _, _⟩ := h
+    IO.FS.writeFile path (← convertToModuleText h imports isMeta)
+    count := count + 1
 
   -- Since we throw an error upon encountering issues, we can be sure that everything worked
   -- if we reach this point of the script.

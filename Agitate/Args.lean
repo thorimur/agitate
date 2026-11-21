@@ -14,6 +14,8 @@ module
 
 public import Lean.Util.Path
 public import Agitate.Workspace
+public import Lake.Config.Glob
+import Lake.Load.Toml
 
 public section
 
@@ -67,6 +69,14 @@ structure Args where
   `false` (`--upstream-duplicates`) restores upstream behaviour (`agitate` addition).
   -/
   resolveDuplicates : Bool := true
+  /--
+  `modulate`: compute, for each selected non-module file, the module-system imports it would need as
+  a `module` with `@[expose] public section` (or `public meta section`, see `metaGlobs`), and with
+  `--fix` convert it (`agitate` addition, DESIGN.md "Converting non-module files: `modulate`").
+  -/
+  toModule : Bool := false
+  /-- `modulate --meta <GLOB>`: files to convert with `public meta section`. -/
+  metaGlobs : Array Lake.Glob := #[]
   keepImplied : Bool := false
   keepPrefix : Bool := false
   keepPublic : Bool := false
@@ -87,18 +97,27 @@ inductive Tool where
   | module
   /-- `agitate-nonmodule`: code not using the module system. -/
   | nonModule
+  /-- `modulate`: converting code to the module system. -/
+  | modulate
 deriving BEq
 
 def Tool.exeName : Tool → String
   | .module => "agitate"
   | .nonModule => "agitate-nonmodule"
+  | .modulate => "modulate"
 
 def usage (tool : Tool) : String :=
   let header := match tool with
     | .module => "agitate: a Lean import minimizer for code using the module system
 (an olean-based reimplementation of `lake shake`)"
     | .nonModule => "agitate-nonmodule: a Lean import minimizer for code not using the module system"
-  let moduleOnly := if tool == .nonModule then "" else "
+    | .modulate => "modulate: converts non-module files to the module system (`modulize` + `agitate`).
+For each selected non-module file, computes the imports it needs as a `module` with
+`@[expose] public section` (or `public meta section`), from its oleans; with `--fix`, converts it"
+  let moduleOnly := if tool == .nonModule then "" else if tool == .modulate then "
+  --meta <GLOB>    convert the matching files with `public meta section` instead of
+                   `@[expose] public section` (repeatable; Lake globs: `Foo`, `Foo.*` for `Foo` and
+                   its submodules, `Foo.+` for its submodules only)" else "
   --keep-public    preserve all `public` imports
   --add-public     add new imports as `public` where they were previously reachable publicly
   --upstream-indirect
@@ -162,6 +181,12 @@ partial def parseArgs (tool : Tool) (args : Args) : List String → Except Strin
   | ["--ignore-indirect-kind"] => .error "missing argument to `--ignore-indirect-kind`"
   | "--ignore-indirect-kind" :: kind :: rest =>
     parseArgs tool { args with ignoreIndirectKinds := args.ignoreIndirectKinds.push kind } rest
+  | ["--meta"] => .error "missing argument to `--meta`"
+  | "--meta" :: glob :: rest =>
+    if tool != .modulate then .error "unknown option `--meta`" else
+    match Lake.Glob.ofString? glob with
+    | some g => parseArgs tool { args with metaGlobs := args.metaGlobs.push g } rest
+    | none => .error s!"invalid glob `{glob}`"
   | ["--only"] => .error "missing argument to `--only`"
   | "--only" :: mod :: rest =>
     parseArgs tool { args with onlyMods := args.onlyMods.push mod.toName } rest
@@ -200,6 +225,7 @@ def cliMain (tool : Tool) (run : Args → Resolver → IO UInt32) (argv : List S
   let args ← match parseArgs tool {} argv with
     | .ok args => pure args
     | .error e => IO.eprintln s!"error: {e}\n\n{usage tool}"; return 2
+  let args := if tool == .modulate then { args with toModule := true } else args
   let r ← args.timed "loading the Lake workspace" Resolver.load
   let args := if args.mods.isEmpty then { args with mods := r.defaultRoots } else args
   if args.mods.isEmpty then

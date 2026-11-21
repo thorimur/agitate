@@ -26,6 +26,9 @@ import Fixture.InstDef
 import Fixture.InstUse
 import Fixture.Keep
 import Fixture.KeepAll
+import Fixture.MetaHelper
+import Fixture.MetaMacro
+import Fixture.MetaUse
 import Fixture.Missing
 import Fixture.Nested
 import Fixture.Nested.Sub

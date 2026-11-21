@@ -1,0 +1,76 @@
+Fixture/A.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/B.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A]
+Fixture/BinderA.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/BinderB.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/BinderUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[import Fixture.BinderB]
+Fixture/C.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.B]
+Fixture/Downstream.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A]
+Fixture/DupA.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/DupB.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/DupUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[import Fixture.DupB]
+Fixture/Eqns.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/EqnRealize.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.Eqns]
+Fixture/EqnUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.Eqns]
+Fixture/IbImpl.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/IbDecl.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.IbImpl]
+Fixture/IbUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.IbDecl]
+Fixture/Implied.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.B]
+Fixture/InstDef.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/InstAttr.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.InstDef]
+Fixture/InstUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.InstAttr]
+Fixture/Keep.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.C]
+Fixture/KeepAll.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A, public import Fixture.C]
+Fixture/MetaHelper.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/MetaMacro.lean:
+  convert to `module` with `public meta section`, importing #[public meta import Fixture.MetaHelper]
+Fixture/MetaUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.MetaMacro]
+Fixture/Missing.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A]
+Fixture/Nested/Sub.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/Nested.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.Nested.Sub, public import Fixture.A]
+Fixture/Notation.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A]
+Fixture/NotationUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.Notation]
+Fixture/Pre/Impl.lean:
+  convert to `module` with `@[expose] public section`, importing #[]
+Fixture/Pre.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.Pre.Impl]
+Fixture/PrefixUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.Pre.Impl]
+Fixture/SimpAttr.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A]
+Fixture/SimpUse.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.SimpAttr]
+Fixture/Unused.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A]
+Fixture/UsesDownstream.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.B, import Fixture.Downstream]
+Fixture.lean:
+  convert to `module` with `@[expose] public section`, importing #[public import Fixture.A, public import Fixture.B, public import Fixture.BinderA, public import Fixture.BinderB, public import Fixture.BinderUse, public import Fixture.C, public import Fixture.Downstream, public import Fixture.DupA, public import Fixture.DupB, public import Fixture.DupUse, public import Fixture.EqnRealize, public import Fixture.EqnUse, public import Fixture.Eqns, public import Fixture.IbDecl, public import Fixture.IbImpl, public import Fixture.IbUse, public import Fixture.Implied, public import Fixture.InstAttr, public import Fixture.InstDef, public import Fixture.InstUse, public import Fixture.Keep, public import Fixture.KeepAll, public import Fixture.MetaHelper, public import Fixture.MetaMacro, public import Fixture.MetaUse, public import Fixture.Missing, public import Fixture.Nested, public import Fixture.Nested.Sub, public import Fixture.Notation, public import Fixture.NotationUse, public import Fixture.Pre, public import Fixture.Pre.Impl, public import Fixture.PrefixUse, public import Fixture.SimpAttr, public import Fixture.SimpUse, public import Fixture.Unused, public import Fixture.UsesDownstream]

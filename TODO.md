@@ -16,6 +16,12 @@
   It takes hours of machine time, so ask Thomas before running it.
 * Report the two reserved-name quirks upstream, and possibly the reserved-reference redirect.
   Deferred: Thomas does not want anything reported for now.
+* `modulate`: automate the Batteries round trip (DESIGN.md, "Converting non-module files"),
+  checking that its failing files stay a subset of core `Modulize.lean`'s. Consider detecting the
+  conversion-semantics failures up front: `private` declarations used in exposed bodies are visible
+  in the oleans; needs for `import all` are not.
+* `modulate`: per-declaration publicity of extra module uses (now all public), if the oleans allow
+  it.
 * `agitate-nonmodule`: test on a real non-module project once one on `v4.33.1` is at hand (so far
   only the fixture and a converted Batteries); time it on something Mathlib-sized.
 * CLI: decide whether to offer `lake shake`'s up-to-date check as an option (the default trusts

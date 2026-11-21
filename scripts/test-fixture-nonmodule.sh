@@ -6,7 +6,10 @@
 # 1. golden outputs for several flag sets (`tests/fixture-nonmodule.expected/`; `UPDATE=1` rewrites
 #    them, review the diff before committing);
 # 2. `--fix` results (default and `--keep-prefix`) must build, and a second run must suggest nothing;
-# 3. with `--ignore-indirect-kind simp` the `--fix` result must build, with `instance` it must not.
+# 3. with `--ignore-indirect-kind simp` the `--fix` result must build, with `instance` it must not;
+# 4. `modulate`: without `--meta` the converted fixture must fail (`Fixture/MetaMacro.lean` needs a
+#    meta section); with `--meta Fixture.MetaMacro` it must build. Golden outputs: `modulate`'s
+#    suggestions, and module-mode `agitate` on the converted result (`modulate-then-agitate.out`).
 # Works on fresh copies, so the fixture in the repo is never modified.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,5 +61,31 @@ for kind in simp instance; do
     instance:no) echo "--ignore-indirect-kind instance --fix result: fails to build, as expected ($(grep -m1 -o 'Fixture/[A-Za-z/]*\.lean' "$d/build.log"))" ;;
     *) echo "--ignore-indirect-kind $kind --fix result: UNEXPECTED (builds: $built)"; fail=1 ;;
   esac
+done
+echo "== modulate (convert to the module system)"
+modulate="$root/.lake/build/bin/modulate"
+(cd "$root" && lake build modulate >/dev/null)
+mrun() { local d; d="$(cd "$1" && pwd -P)"; shift
+  (cd "$d" && "$modulate" "$@" 2>&1 | sed "s#$d/##g") || true; }
+d="$work/modulate-nometa"; cp -R "$work/base" "$d"
+mrun "$d" --fix Fixture > /dev/null
+if (cd "$d" && lake build > build.log 2>&1); then
+  echo "modulate --fix without --meta: builds (UNEXPECTED: Fixture/MetaMacro.lean needs a meta section)"; fail=1
+else
+  echo "modulate --fix without --meta: fails to build, as expected ($(grep -m1 -o 'Fixture/[A-Za-z/]*\.lean' "$d/build.log"))"
+fi
+d="$work/modulate"; cp -R "$work/base" "$d"
+mrun "$d" --meta Fixture.MetaMacro Fixture > "$work/modulate.out"
+mrun "$d" --meta Fixture.MetaMacro --fix Fixture > /dev/null
+if (cd "$d" && lake build > build.log 2>&1); then echo "modulate --meta Fixture.MetaMacro --fix: builds"
+else echo "modulate --meta Fixture.MetaMacro --fix: BUILD FAILED"; grep -m5 error "$d/build.log" || true; fail=1; fi
+agitate="$root/.lake/build/bin/agitate"
+(cd "$root" && lake build agitate >/dev/null)
+dd="$(cd "$d" && pwd -P)"
+(cd "$dd" && "$agitate" Fixture 2>&1 | sed "s#$dd/##g") > "$work/modulate-then-agitate.out" || true
+for name in modulate modulate-then-agitate; do
+  if [[ -n "${UPDATE:-}" ]]; then cp "$work/$name.out" "$expected/$name.out"; fi
+  if cmp -s "$work/$name.out" "$expected/$name.out"; then printf '%-24s matches\n' "$name"
+  else printf '%-24s DIFFERS\n' "$name"; diff "$expected/$name.out" "$work/$name.out" | head -20 || true; fail=1; fi
 done
 exit $fail
