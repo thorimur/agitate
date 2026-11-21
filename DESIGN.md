@@ -422,9 +422,10 @@ tools synthesize the extra module use that Lean does not record:
   term, the declarer of `n` becomes a need of the module. The name is resolved like a constant
   reference (`resolveRef`, `Resolved.forModule`), so reserved names and duplicates behave the same.
 * **Kind (Thomas):** public if the declaration containing the quotation is exported, private
-  otherwise; never meta. We know why a name gets preresolved: so that the quoted syntax resolves to
-  it wherever it is elaborated, i.e. in the modules that run the macro or elaborator. Whether other
-  modules can run it is what the declaration's visibility says. The name is data to the
+  otherwise; never meta. The reasoning, summarized from Thomas: unlike a name literal in general,
+  the purpose of a preresolved name is known. It is there so that the quoted syntax resolves to it
+  wherever that syntax is elaborated, i.e. in the modules that run the macro or elaborator. Whether
+  other modules can run it is what the declaration's visibility says. The name is data to the
   metaprogram, not code it runs, and those modules elaborate it in the regular phase. A macro's
   auxiliary definition counts as exported even without `public macro`. In the fixture,
   `QuotMacro` keeps a public import and `QuotHelper`, whose quotation is in a private `meta def`,
@@ -432,8 +433,8 @@ tools synthesize the extra module use that Lean does not record:
   sites refer to the declaration as a constant, so shake gives them a direct import of it (the
   `QuotHelper` case shows this). The public import saves a macro's users from importing what its
   expansion needs.
-* **Possible restriction (Thomas), not implemented.** Count only quotations in declarations with
-  the `@[macro]` attribute, where the reason for preresolving is clearest. Of the hits traced with
+* **Possible restriction, not implemented (suggested by Thomas; summarized).** Count only
+  quotations in declarations with the `@[macro]` attribute. Of the hits traced with
   `--explain` (below), only `json%` in `Lean/Data/Json/Elab.lean` is such a declaration. The
   others are `elab_rules` elaborators (`Mathlib/Util/Notation3.lean`,
   `Mathlib/Util/ParseCommand.lean`), plain helpers (`elabElabRulesAux` in
@@ -477,7 +478,8 @@ tools synthesize the extra module use that Lean does not record:
    and agitate would then need no special code: delete `Agitate/Preresolved.lean`.
 2. Under the module system, a macro's users need the preresolved declarations as well, and a
    private import in the macro's module does not reach them. The natural carrier is an indirect
-   use (Thomas's proposal): "references to macro `m` also need module `F`". Expanding a macro already calls
+   use, as Thomas proposed (summarized): references to macro `m` also need module `F`. Expanding a
+   macro already calls
    `recordExtraModUseFromDecl` on its declaration (`Lean/Elab/Util.lean:160-162, 214-215`; tactics
    at `Lean/Elab/Tactic/Basic.lean:255, 315`). That call also records the declaration's indirect
    uses, non-meta, at the use site's export level (`Lean/ExtraModUses.lean:111-118`), which is
@@ -638,7 +640,8 @@ same sections, which keeps every import and makes it public, served as the compa
   imports decode as private and would stop the closure after one hop, and every place that cares
   (printing, `--fix` matching, meta inference) would need patching. The single-kind visit step is
   shorter and clearer.
-* **Preresolved names as indirect uses of the macro's declaration (Thomas).** Deferred until Lean
+* **Preresolved names as indirect uses of the macro's declaration (proposed by Thomas;
+  summarized).** Deferred until Lean
   can express it. With today's `IndirectModUse`, the macro's module can only name itself as the
   target (see "Preresolved names in quotations", part 2 of the ideal solution).
 * **Agitate emulating those indirect uses per module (Claude).** Not pursued. A use site's recorded
