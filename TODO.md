@@ -17,7 +17,9 @@
 * Preresolved names: propose the Lean-side fix (DESIGN.md, "Preresolved names in quotations"):
   `quoteSyntax` records extra module uses, plus indirect uses that name their target module. Once
   Lean records them, delete `Agitate/Preresolved.lean` and `--ignore-preresolved`. Ask Thomas
-  before reporting anything upstream.
+  before reporting anything upstream. Before proposing it, measure the default-mode change on all
+  of Mathlib (so far only a 70-module slice), in particular how many new public imports of core
+  modules elaborators bring in.
 * Report the two reserved-name quirks upstream, and possibly the reserved-reference redirect.
   Deferred: Thomas does not want anything reported for now.
 * `modulate`: automate the Batteries round trip (DESIGN.md, "Converting non-module files"),

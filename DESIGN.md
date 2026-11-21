@@ -427,7 +427,11 @@ tools synthesize the extra module use that Lean would record if `quoteSyntax` be
   otherwise; never meta. The name is data to the metaprogram, not code it runs, and expansion
   sites elaborate it in the regular phase. A macro's auxiliary definition counts as exported even
   without `public macro`. In the fixture, `QuotMacro` keeps a public import and `QuotHelper`, whose
-  quotation is in a private `meta def`, a private one.
+  quotation is in a private `meta def`, a private one. This differs from Lean's own choice for
+  `` ``foo ``, which is always private (`withoutExporting`, `Lean/Elab/BuiltinTerm.lean:260`). A
+  private import would also be enough for `--fix` results to build: expansion sites refer to the
+  declaration as a constant, so shake gives them a direct import of it (the `QuotHelper` case
+  shows this). The public import saves a macro's users from importing what its expansion needs.
 * **Not followed (Claude):** the declarer's indirect module uses, which `recordExtraModUseFromDecl`
   would add. They are needs of expansion sites, and expansion sites reference the declaration as a
   constant and get them that way. The quotation's module only needs the name to resolve.
@@ -466,7 +470,7 @@ tools synthesize the extra module use that Lean would record if `quoteSyntax` be
    and agitate would then need no special code: delete `Agitate/Preresolved.lean`.
 2. Under the module system, a macro's users need the preresolved declarations as well, and a
    private import in the macro's module does not reach them. The natural carrier is an indirect
-   use: "references to macro `m` also need module `F`". Expanding a macro already calls
+   use (Thomas's proposal): "references to macro `m` also need module `F`". Expanding a macro already calls
    `recordExtraModUseFromDecl` on its declaration (`Lean/Elab/Util.lean:160-162, 214-215`; tactics
    at `Lean/Elab/Tactic/Basic.lean:255, 315`). That call also records the declaration's indirect
    uses, non-meta, at the use site's export level (`Lean/ExtraModUses.lean:111-118`), which is
@@ -627,5 +631,12 @@ same sections, which keeps every import and makes it public, served as the compa
   imports decode as private and would stop the closure after one hop, and every place that cares
   (printing, `--fix` matching, meta inference) would need patching. The single-kind visit step is
   shorter and clearer.
+* **Preresolved names as indirect uses of the macro's declaration (Thomas).** Deferred until Lean
+  can express it. With today's `IndirectModUse`, the macro's module can only name itself as the
+  target (see "Preresolved names in quotations", part 2 of the ideal solution).
+* **Agitate emulating those indirect uses per module (Claude).** Not pursued. A use site's recorded
+  uses name only the macro's module, not the macro. So agitate would have to charge every user of
+  that module with every name preresolved anywhere in it: sound, but coarse. The extra module use
+  in the macro's own module covers non-module code completely, because imports re-export.
 * **Native (C) bitset helpers via `extern`.** Deferred. The `ByteArray` bitset brought the loop
   from 82 s to 2.7 s; revisit if the loop matters again.
