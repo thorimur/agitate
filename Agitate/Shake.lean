@@ -127,6 +127,8 @@ structure State where
   indirectViaPublic : Bool
   /-- See `Args.implementedByNeeds`. -/
   implementedByNeeds : Bool
+  /-- See `Args.resolveDuplicates`. -/
+  resolveDuplicates : Bool
   /--
   `transDeps[i]` is the (non-reflexive) transitive closure of `mods[i].imports`. More specifically,
   * `j ∈ transDeps[i].pub` if `i -(public import)->+ j`
@@ -156,7 +158,15 @@ structure State where
 /-- The reference-resolution view of the state. -/
 def State.refs (s : State) : RefCtx :=
   { ix := s.ix, reserved := s.reserved, reservedRefsToBase := s.reservedRefsToBase,
-    indirectModUses := s.indirectModUses, implementedByNeeds := s.implementedByNeeds }
+    indirectModUses := s.indirectModUses, implementedByNeeds := s.implementedByNeeds,
+    resolveDuplicates := s.resolveDuplicates }
+
+/-- Preferences among the declarers of a duplicated name (`Resolved.moduleFor`): reached by `i`'s
+original imports with kind `k` (or its public version), then reached with any kind. -/
+def declPrefs (s : State) (i : ModuleIdx) (k : NeedsKind) : Array (ModuleIdx → Bool) :=
+  let t := s.transDepsOrig[i]!
+  #[fun m => t.has k m || t.has { k with isExported := true } m,
+    fun m => NeedsKind.all.any (t.has · m)]
 
 /--
 Given module `j`'s transitive dependencies, computes the union of `transImps` and the transitive
@@ -243,8 +253,8 @@ where
       let mut deps := deps
       if let some r := r? then
         let k := { k with isMeta := k.isMeta && !r.isMeta }
-        if r.mod != i then
-          deps := deps.insert k r.mod
+        if let some j := r.moduleFor i fun _ => declPrefs s i k then
+          deps := deps.insert k j
           for (indMod : Nat) in r.indirect do
             if reachesForIndirect s i k indMod then
               deps := deps.insert k indMod
@@ -287,7 +297,12 @@ where
       if let some c := getDepConstName? s.refs c then
         if let some j := ix.getModuleIdxFor? c then
           let k := { k with isMeta := k.isMeta && !isDeclMeta' ix c }
-          deps := addExplanation j k name c deps
+          -- `agitate`: for duplicated names, the declarer `calcNeeds` charges (none: `i` itself)
+          let j? := if s.resolveDuplicates && ix.dupDecls.contains c then
+              (resolveRef s.refs c).bind (·.moduleFor i fun _ => declPrefs s i k)
+            else some j
+          if let some j := j? then
+            deps := addExplanation j k name c deps
         for indMod in s.indirectModUses[c]?.getD #[] do
           if reachesForIndirect s i k indMod then
             deps := addExplanation indMod k name (`_indirect ++ c) deps
@@ -307,6 +322,7 @@ def initState (ix : Index) (args : Args) : State := Id.run do
                  reservedRefsToBase := args.reservedRefsToBase,
                  indirectViaPublic := args.indirectViaPublic,
                  implementedByNeeds := args.implementedByNeeds,
+                 resolveDuplicates := args.resolveDuplicates,
                  indirectModUses := ix.indirectModUsesExcept ignore }
   for i in 0...ix.size do
     let mut imps := #[]

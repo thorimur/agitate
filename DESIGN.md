@@ -27,6 +27,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | `agitate` skips source imports missing from the oleans' closure (stale oleans) instead of panicking. | Thomas | implemented |
 | License the repository under Apache 2.0, with copyright headers; files copied or ported from Lean keep their original notices and describe their changes. | Thomas | done |
 | Resolve modules through the Lake workspace (root package first, then the toolchain), never `LEAN_PATH`/`LEAN_SRC_PATH`; default to the root's default target roots. | Thomas | implemented |
+| For a name declared in several modules, charge a use to the module itself if it declares the name, else to a declarer its original imports reach; `--upstream-duplicates` restores first-declarer resolution. | Thomas (reported by another session; design by Claude) | implemented |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
 | Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
@@ -348,6 +349,35 @@ while nothing references a constant. `lake shake` suggests the same removal on t
 file. Thomas's decision: such cases get `-- shake: keep`, not code.
 
 ## Known blind spots
+
+**Fixed: duplicate declarations (reported by another session exercising agitate's results).**
+Lean lets imports merge identical theorems declared in unrelated modules (`subsumesInfo`,
+`Lean/Environment.lean:2268-2273`; definitions cannot be duplicated). Shake records only the first
+declaring module per name (`insertIfNew`). Every reference was charged to that module, with only
+`j != i` checked. So a module's use of *its own* theorem could be charged to an earlier,
+unrelated module that also declares it. That module was then added, although it was not even in
+the module's imports. In the module fixture, upstream's `--fix` then fails with "already declared".
+
+`Index.dupDecls` records all declaring modules, but only for duplicated names (it is filled in the
+branch that already handles duplicates). `const2ModIdx` stays as in core, so `agitate-check` is
+unaffected. `resolveRef` returns them in `Resolved.decls`, still once per distinct name per module.
+`Resolved.moduleFor` then chooses per referencing module `i`:
+
+* if `i` itself declares the name, the use is local and needs nothing;
+* otherwise, the first declarer reached by `i`'s *original* imports with the needed kind (or its
+  public version), then with any kind. One exists, because `i` compiled. The fallback is the first
+  declarer.
+
+Both tools and `--explain` use this. Unique names pay one `isEmpty` test per occurrence.
+`--upstream-duplicates` (part of `--compat`) restores upstream. The fixtures' `DupA`/`DupB`/`DupUse`
+reproduce the report: upstream adds `DupA` to `DupB`, and replaces `DupUse`'s import of `DupB` by
+`DupA`. No change on core.
+
+Duplicated *equation lemmas*, which are realised routinely in several modules, are reserved names.
+By default a use counts as one to the base declaration (see "Reserved names"), whichever copy it
+refers to. The rule above covers them under `--ignore-reserved-refs`/`--compat`.
+
+Still open:
 
 Shared by both tools and by `lake shake`:
 

@@ -8,6 +8,9 @@ import Fixture.A
 import Fixture.B
 import Fixture.C
 import Fixture.Downstream
+import Fixture.DupA
+import Fixture.DupB
+import Fixture.DupUse
 import Fixture.EqnRealize
 import Fixture.EqnUse
 import Fixture.Eqns

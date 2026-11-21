@@ -9,6 +9,9 @@ public import Fixture.A
 public import Fixture.B
 public import Fixture.C
 public import Fixture.Downstream
+public import Fixture.DupA
+public import Fixture.DupB
+public import Fixture.DupUse
 public import Fixture.EqnRealize
 public import Fixture.EqnUse
 public import Fixture.Eqns

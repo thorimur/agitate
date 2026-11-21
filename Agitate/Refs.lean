@@ -30,6 +30,8 @@ structure RefCtx where
   indirectModUses : Std.HashMap Name (Array ModuleIdx)
   /-- See `Args.implementedByNeeds`. -/
   implementedByNeeds : Bool
+  /-- See `Args.resolveDuplicates`. -/
+  resolveDuplicates : Bool
 
 def isDeclMeta' (ix : Index) (declName : Name) : Bool :=
   -- Matchers are not compiled by themselves but inlined by the compiler, so there is no IR decl
@@ -65,15 +67,40 @@ the (possibly redirected) dependency, whether that declaration is `meta`, and it
 uses. `none` if the reference is ignored (reserved, or not an imported constant).
 -/
 structure Resolved where
+  /-- The first declaring module (core's `getModuleIdxFor?`). -/
   mod : ModuleIdx
   isMeta : Bool
   indirect : Array ModuleIdx
+  /--
+  All declaring modules if the name is declared in more than one (`Index.dupDecls`) and
+  `Args.resolveDuplicates` is set; otherwise empty (`agitate` addition).
+  -/
+  decls : Array ModuleIdx := #[]
 
 /-- Resolves a reference; independent of the referencing module (`agitate` addition). -/
 def resolveRef (s : RefCtx) (ref : Name) : Option Resolved := do
   let c ← getDepConstName? s ref
   let j ← s.ix.getModuleIdxFor? c
-  return { mod := j, isMeta := isDeclMeta' s.ix c, indirect := s.indirectModUses[c]?.getD #[] }
+  return { mod := j, isMeta := isDeclMeta' s.ix c, indirect := s.indirectModUses[c]?.getD #[],
+           decls := if s.resolveDuplicates then s.ix.dupDecls[c]?.getD #[] else #[] }
+
+/--
+The module that a reference from module `i` needs, or `none` if `i` declares the name itself.
+
+For a name declared in several modules (identical theorems), upstream charges every reference to
+the first declarer, which may be outside `i`'s imports, or charges `i`'s own theorem to another
+module. Here a declaration in `i` itself wins. Otherwise the first declarer satisfying a preference,
+tried in order: typically "reached by `i`'s original imports with the needed kind", then "reached at
+all". One always exists, because `i` compiled. The fallback is the first declarer, as upstream.
+-/
+@[inline] def Resolved.moduleFor (r : Resolved) (i : ModuleIdx)
+    (prefs : Unit → Array (ModuleIdx → Bool)) : Option ModuleIdx :=
+  if r.decls.isEmpty then
+    if r.mod == i then none else some r.mod
+  else if r.decls.contains i then
+    none
+  else
+    some <| ((prefs ()).findSome? fun p => r.decls.find? p).getD r.mod
 
 /--
 The `@[implemented_by]` target of `decl` with its module and meta-ness, if it is to be counted as a

@@ -75,6 +75,12 @@ public structure Index where
   the lookup below usually succeeds on pointer equality.
   -/
   extSlots : Array Name
+  /--
+  For each name declared in more than one module (identical theorems, which `subsumesInfo` lets
+  imports merge), all declaring modules in `ModuleIdx` order. `const2ModIdx` keeps only the first,
+  as core does; references are resolved per module against this table (`Resolved.moduleFor`).
+  -/
+  dupDecls : Std.HashMap Name (Array ModuleIdx) := {}
 
 namespace Index
 
@@ -273,6 +279,7 @@ public def Index.build (modules : Array Module) (extraExts : Array Name := #[]) 
   let mut const2ModIdx : Std.HashMap Name ModuleIdx := .emptyWithCapacity numConsts
   let mut privConsts : Std.HashMap Name ConstantInfo := .emptyWithCapacity numConsts
   let mut pubConsts : Std.HashMap Name ConstantInfo := .emptyWithCapacity numPub
+  let mut dupDecls : Std.HashMap Name (Array ModuleIdx) := {}
   for h : i in 0...modules.size do
     let data := modules[i].priv
     for cname in data.constNames, cinfo in data.constants do
@@ -284,6 +291,11 @@ public def Index.build (modules : Array Module) (extraExts : Array Name := #[]) 
             privConsts := privConsts.insert cname cinfo
           else if !subsumesInfo privConsts cinfoPrev cinfo then
             throwAlreadyImported modules const2ModIdx i cname
+          -- `agitate`: remember every declaring module (only reached for duplicates)
+          let first := const2ModIdx[cname]!
+          dupDecls := dupDecls.alter cname fun
+            | some ms => if ms.contains i then some ms else some (ms.push i)
+            | none => some (if first == i then #[i] else #[first, i])
       const2ModIdx := const2ModIdx.insertIfNew cname i
   for m in modules do
     for cname in m.pub.constNames, cinfo in m.pub.constants do
@@ -294,7 +306,7 @@ public def Index.build (modules : Array Module) (extraExts : Array Name := #[]) 
           if subsumesInfo pubConsts cinfo cinfoPrev then
             pubConsts := pubConsts.insert cname cinfo
   let ix : Index := { modules, modIdx, const2ModIdx, privConsts, pubConsts, matchers := {},
-                      indirectModUses := {}, extSlots }
+                      indirectModUses := {}, extSlots, dupDecls }
   let mut matchers : Std.HashSet Name := {}
   let mut indirectModUses : Std.HashMap Name (Array (ModuleIdx × String)) := {}
   for h : i in 0...modules.size do

@@ -36,12 +36,17 @@ The options match `lake shake`: `--keep-implied`, `--keep-prefix`, `--keep-publi
 `--gh-style`, `--explain`, `--trace`, `--fix` and `--only <MODULE>`. agitate adds:
 
 * `--profile`: print per-phase timings to stderr (runs the phases one after another).
-* `--compat`: behave exactly like `lake shake` (the next three options combined).
+* `--compat`: behave exactly like `lake shake`: `--upstream-reserved`, `--ignore-reserved-refs`,
+  `--ignore-implemented-by`, `--upstream-duplicates` and `--upstream-indirect`, with no ignored
+  indirect kinds.
 * `--upstream-reserved`: compute reserved names exactly as `lake shake` does, quirks included.
 * `--ignore-reserved-refs`: drop references to reserved names, as `lake shake` does, instead of
   counting them as references to the declaration they are regenerated from.
 * `--ignore-indirect-kind <KIND>`: ignore indirect module uses recorded by attribute `KIND`
   (repeatable; `*` for all). By default all kinds count, as in `lake shake`.
+* `--upstream-duplicates`: charge every use of a name declared in several modules (identical
+  theorems) to the first declarer, as `lake shake` does. By default a module's own declaration wins,
+  then a declarer its imports reach; upstream can add an import from outside the module's closure.
 * `--upstream-indirect`: count an indirect module use only when the recording module is reached
   through an import of exactly the needed kind, as `lake shake` does. By default a public import
   also satisfies a private need.

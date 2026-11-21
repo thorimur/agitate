@@ -16,6 +16,17 @@ Fixture/Downstream.lean:
     because of the implicit `Init` import
   note: `import Fixture.A` required
     because `downstream` refers to `a`
+Fixture/DupA.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/DupB.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+Fixture/DupUse.lean:
+  note: `import Init` required
+    because of the implicit `Init` import
+  note: `import Fixture.DupB` required
+    because `dupUse` refers to `dupThm`
 Fixture/Eqns.lean:
   note: `import Init` required
     because of the implicit `Init` import
@@ -152,6 +163,12 @@ Fixture.lean:
     because of `--only` / `shake: keep-all`
   note: `import Fixture.Downstream` required
     because of `shake: keep-downstream`/extra rev use in `Fixture.Downstream`
+  note: `import Fixture.DupA` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.DupB` required
+    because of `--only` / `shake: keep-all`
+  note: `import Fixture.DupUse` required
+    because of `--only` / `shake: keep-all`
   note: `import Fixture.EqnRealize` required
     because of `--only` / `shake: keep-all`
   note: `import Fixture.EqnUse` required

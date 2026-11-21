@@ -63,7 +63,8 @@ def initState (ix : Index) (args : Args) : State := Id.run do
   let refs : RefCtx := { ix, reserved := { ix, upstream := args.upstreamReserved },
                          reservedRefsToBase := args.reservedRefsToBase,
                          indirectModUses := ix.indirectModUsesExcept ignore,
-                         implementedByNeeds := args.implementedByNeeds }
+                         implementedByNeeds := args.implementedByNeeds,
+                         resolveDuplicates := args.resolveDuplicates }
   let mut transDeps : Array Bitset := #[]
   for i in 0...ix.size do
     let mut t : Bitset := ∅
@@ -99,8 +100,8 @@ where
         | none => let r? := resolveRef s.refs c; (r?, cache.insert c r?)
       let mut deps := deps
       if let some r := r? then
-        if r.mod != i then
-          deps := deps.insert r.mod
+        if let some j := r.moduleFor i fun _ => #[(s.transDepsOrig[i]!.has ·)] then
+          deps := deps.insert j
           for indMod in r.indirect do
             if s.transDepsOrig[i]!.has indMod then
               deps := deps.insert indMod
@@ -127,8 +128,8 @@ where
     Lean.Expr.foldConsts e deps fun c deps => Id.run do
       let mut deps := deps
       if let some r := resolveRef s.refs c then
-        if r.mod != i then
-          deps := add r.mod name c deps
+        if let some j := r.moduleFor i fun _ => #[(s.transDepsOrig[i]!.has ·)] then
+          deps := add j name c deps
           for indMod in r.indirect do
             if s.transDepsOrig[i]!.has indMod then
               deps := add indMod name (`_indirect ++ c) deps
