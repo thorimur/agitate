@@ -7,7 +7,8 @@ Authors: Mario Carneiro, Sebastian Ullrich, Thomas Murrills
 
 /-
 Source-header handling shared by `agitate` and `agitate-nonmodule`: parsing headers, decoding
-imports, and applying `--fix` edits. Copied from upstream `Lake/CLI/Shake.lean` (Lean `v4.33.1`).
+imports, and applying `--fix` edits. Copied from upstream `Lake/CLI/Shake.lean` (Lean `v4.33.1`;
+unchanged in `v4.36.0`).
 -/
 module
 

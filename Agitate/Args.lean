@@ -8,7 +8,7 @@ Authors: Mario Carneiro, Sebastian Ullrich, Thomas Murrills
 /-
 Command-line arguments and the shared CLI driver of `agitate` (module system) and
 `agitate-nonmodule` (non-module code). The option fields come from upstream `Lake.Shake.Args`
-(Lean `v4.33.1`), extended by agitate's options.
+(Lean `v4.36.0`), extended by agitate's options.
 -/
 module
 
@@ -30,7 +30,7 @@ structure Args where
   /-- Only print the kinds of indirect module uses with their counts, then exit (`agitate` addition). -/
   listIndirectKinds : Bool := false
   /--
-  Compute reserved names exactly as `lake shake` v4.33.1 does, including its two quirks
+  Compute reserved names exactly as `lake shake` v4.36.0 does, including its two quirks
   (`Agitate.Reserved`). Used for the strict parity test (`agitate` addition).
   -/
   upstreamReserved : Bool := false
@@ -98,6 +98,11 @@ structure Args where
   mods : Array Name := #[]
   /-- The list of modules to minimize exclusively, otherwise all reachable ones. -/
   onlyMods : Array Name := #[]
+  /--
+  An import that every checked module should have, directly or transitively, where that does not
+  create an import cycle.
+  -/
+  addDownstream? : Option Import := none
 
 /-- Which tool is running; decides which options exist. -/
 inductive Tool where
@@ -128,6 +133,13 @@ For each selected non-module file, computes the imports it needs as a `module` w
                    its submodules, `Foo.+` for its submodules only)" else "
   --keep-public    preserve all `public` imports
   --add-public     add new imports as `public` where they were previously reachable publicly
+  --add-downstream <MODULE>
+                   add MODULE as an `import` to every checked module that does not reach it yet,
+                   except where that would create an import cycle
+  --add-public-downstream <MODULE>
+                   like `--add-downstream`, but add MODULE as a `public import` wherever it is not
+                   reached through public imports yet (far fewer imports, as they are passed on);
+                   only one of these two options can be used, once
   --upstream-indirect
                    count an indirect module use only if the module reaches the recording module
                    through an import of exactly the same kind, as `lake shake` does
@@ -173,6 +185,22 @@ OPTIONS:
                    print the kinds of indirect module uses in the import closure, then exit
 "
 
+/--
+`--add-downstream <MODULE>` and `--add-public-downstream <MODULE>` (`agitate` only), with
+`lake shake`'s check (`setShakeAddDownstream`) that only one of them is given, once.
+-/
+def parseAddDownstream (tool : Tool) (args : Args) (opt : String) (isExported : Bool) :
+    List String → Except String (Args × List String)
+  | [] =>
+    if tool != .module then .error s!"unknown option `{opt}`"
+    else .error s!"missing argument to `{opt}`"
+  | mod :: rest =>
+    if tool != .module then .error s!"unknown option `{opt}`"
+    else if args.addDownstream?.isSome then
+      .error "at most one of `--add-downstream` and `--add-public-downstream` can be used, \
+        and only once"
+    else .ok ({ args with addDownstream? := some { module := mod.toName, isExported } }, rest)
+
 /-- Parses the command line of `tool`. -/
 partial def parseArgs (tool : Tool) (args : Args) : List String → Except String Args
   | [] => .ok args
@@ -199,6 +227,13 @@ partial def parseArgs (tool : Tool) (args : Args) : List String → Except Strin
     match Lake.Glob.ofString? glob with
     | some g => parseArgs tool { args with metaGlobs := args.metaGlobs.push g } rest
     | none => .error s!"invalid glob `{glob}`"
+  | "--add-downstream" :: rest => do
+    let (args, rest) ← parseAddDownstream tool args "--add-downstream" (isExported := false) rest
+    parseArgs tool args rest
+  | "--add-public-downstream" :: rest => do
+    let (args, rest) ←
+      parseAddDownstream tool args "--add-public-downstream" (isExported := true) rest
+    parseArgs tool args rest
   | ["--only"] => .error "missing argument to `--only`"
   | "--only" :: mod :: rest =>
     parseArgs tool { args with onlyMods := args.onlyMods.push mod.toName } rest

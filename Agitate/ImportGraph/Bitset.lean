@@ -14,7 +14,8 @@ namespace Agitate.ImportGraph
 /--
 A set of small naturals (usually module indices), packed eight per byte.
 
-Changed from Lake's `shake` (`Lake/CLI/Shake.lean`, Lean `v4.33.1`), which uses a `Nat` here.
+Changed from Lake's `shake` (`Lake/CLI/Shake.lean`, Lean `v4.33.1`; unchanged in `v4.36.0`), which
+uses a `Nat` here.
 There `has` is `Nat.testBit`, i.e. `1 &&& (m >>> i)`, which copies the whole bignum on every
 membership test, and every `∪ {j}` allocates the singleton `1 <<< j`. That made the sequential
 `visitModule` loop dominate shake's runtime (agitate's DESIGN.md, B1). Here `has` is O(1), and

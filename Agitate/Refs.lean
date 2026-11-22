@@ -7,7 +7,8 @@ Authors: Mario Carneiro, Sebastian Ullrich, Thomas Murrills
 
 /-
 Resolving the constants that a module's terms refer to, shared by `agitate` and
-`agitate-nonmodule`. Adapted from upstream `Lake/CLI/Shake.lean` (Lean `v4.33.1`).
+`agitate-nonmodule`. Adapted from upstream `Lake/CLI/Shake.lean` (Lean `v4.33.1`;
+unchanged in `v4.36.0`).
 -/
 module
 

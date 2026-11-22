@@ -28,9 +28,9 @@
 
 ## Benchmark setup
 
-* Mathlib `v4.33.1` (shallow clone plus `lake exe cache get`) lives in the session scratchpad as
+* Mathlib `v4.36.0` (shallow clone plus `lake exe cache get`) lives in the session scratchpad as
   `mathlib4/`. Batteries is tested from inside it (`.lake/packages/batteries`), since Batteries has
-  no `v4.33.1` tag but Mathlib pins a matching commit. The scratchpad can be wiped; re-clone if it
+  no `v4.36.0` tag but Mathlib pins a matching commit. The scratchpad can be wiped; re-clone if it
   is gone.
 * This machine evicts the page cache aggressively: run Mathlib profiles twice back to back and
   report ranges. Cold-cache behaviour matters too (CI starts cold).
@@ -39,9 +39,10 @@
 
 ## Pitfalls
 
-* Oleans are version-locked: benchmarks need projects built with exactly `v4.33.1`.
-* Upstream source for comparison is the `v4.33.1` tag of the local Lean checkout
-  (`git show v4.33.1:src/lake/Lake/CLI/Shake.lean`), not its working tree.
+* Oleans are version-locked: benchmarks need projects built with exactly `v4.36.0`.
+* Upstream source for comparison is the `v4.36.0` tag of the local Lean checkout
+  (`git show v4.36.0:src/lake/Lake/CLI/Shake.lean`), not its working tree. On a toolchain bump,
+  diff the ported sources between the tags (DESIGN.md, "Toolchain bump to `v4.36.0`", lists them).
 * `.olean.private` points into the `.olean` and `.olean.server` regions: read the three together
   with `readModuleDataParts`, not separately with `readModuleData`. Never map the same `.olean`
   twice: the second mapping misses its fixed base address and falls back to `read()` plus

@@ -11,7 +11,7 @@
 * Indirect mod uses: choose a default per-kind policy (DESIGN.md, "Indirect module uses"). The
   principled candidate is to ignore kinds whose consumer records its own uses (`simp` and simp sets).
   Validating it needs a Mathlib build with `--fix` applied (see next item).
-* End-to-end validation on Mathlib: apply `agitate --fix` to a copy of Mathlib `v4.33.1` and build
+* End-to-end validation on Mathlib: apply `agitate --fix` to a copy of Mathlib `v4.36.0` and build
   it. This checks that the suggestions actually compile, which no test has done at Mathlib scale.
   It takes hours of machine time, so ask Thomas before running it.
 * Preresolved names: propose the Lean-side fix (DESIGN.md, "Preresolved names in quotations"):
@@ -28,7 +28,7 @@
   in the oleans; needs for `import all` are not.
 * `modulate`: per-declaration publicity of extra module uses (now all public), if the oleans allow
   it.
-* `agitate-nonmodule`: test on a real non-module project once one on `v4.33.1` is at hand (so far
+* `agitate-nonmodule`: test on a real non-module project once one on `v4.36.0` is at hand (so far
   only the fixture and a converted Batteries); time it on something Mathlib-sized.
 * CLI: decide whether to offer `lake shake`'s up-to-date check as an option (the default trusts
   the oleans, as Thomas wants).

@@ -14,9 +14,12 @@
 #    records nothing, so only the indirect use keeps the import).
 # 4. Preresolved names: with `--ignore-preresolved` the `--fix` result must fail at
 #    `Fixture/QuotUse.lean` (a quotation's only use of an import, `Fixture/QuotMacro.lean`).
+# 5. `agitate-check Fixture`: the olean index and reserved-name predicates agree with core on the
+#    fixture (`Fixture/BvEnum.lean` and `Fixture/StrongInduct.lean` realize the reserved names that
+#    changed in Lean `v4.36.0`).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
-(cd "$root" && lake build agitate >/dev/null)
+(cd "$root" && lake build agitate agitate-check >/dev/null)
 agitate="$root/.lake/build/bin/agitate"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -29,7 +32,8 @@ fresh "$work/base"
 
 echo "== differential runs"
 for flags in "" "--explain" "--add-public" "--keep-prefix" "--add-public --keep-prefix" \
-    "--keep-implied" "--keep-public" "--gh-style" "--only Fixture.Unused" "--explain --add-public"; do
+    "--keep-implied" "--keep-public" "--gh-style" "--only Fixture.Unused" "--explain --add-public" \
+    "--add-downstream Fixture.B" "--explain --add-public-downstream Fixture.B"; do
   printf '%-28s ' "${flags:-(default)}"
   # shellcheck disable=SC2086
   if r=$("$root/scripts/compare.sh" "$work/base" $flags Fixture 2>&1); then
@@ -76,6 +80,10 @@ if (cd "$work/noPreresolved" && lake build Fixture.QuotUse > "$work/noPreresolve
 else
   echo "--ignore-preresolved --fix result: Fixture/QuotUse.lean fails to build, as expected"
 fi
+echo "== agitate-check"
+if (cd "$work/base" && "$root/.lake/build/bin/agitate-check" Fixture > "$work/check.out" 2>&1); then
+  echo "agitate-check: $(tail -2 "$work/check.out" | tr '\n' ' ')"
+else echo "agitate-check: FAILED"; tail -5 "$work/check.out"; fail=1; fi
 echo "== stale sources (oleans are trusted, not checked)"
 cp -R "$work/base" "$work/stale"
 # An import added to the source after the build, of a module outside the oleans' import closure.

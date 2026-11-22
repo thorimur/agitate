@@ -10,11 +10,12 @@ Authors: Leonardo de Moura, Sebastian Ullrich, Thomas Murrills
 The olean index: everything `agitate` needs about the imported modules, read directly from each
 module's `.olean` parts with `readModuleDataParts`, without `importModules`/`finalizeImport`.
 
-Where this mirrors core behaviour, the core definition (Lean `v4.33.1`) is named in the docstring.
+Where this mirrors core behaviour, the core definition (Lean `v4.36.0`) is named in the docstring.
 That is the contract the differential checker (`agitate-check`) verifies. Those parts are adapted
-from Lean 4 core at `v4.33.1` (`Lean/Environment.lean`, `Lean/EnvExtension.lean`,
-`Lean/Attributes.lean`, `Lean/Compiler/MetaAttr.lean`, `Lean/ExtraModUses.lean`): they read the
-imported data directly instead of through an `Environment`.
+from Lean 4 core at `v4.33.1` and checked against `v4.36.0` (`Lean/Environment.lean`,
+`Lean/EnvExtension.lean`, `Lean/Attributes.lean`, `Lean/Compiler/MetaAttr.lean`,
+`Lean/ExtraModUses.lean`): they read the imported data directly instead of through an
+`Environment`.
 -/
 module
 
@@ -187,10 +188,10 @@ deriving BEq, Inhabited
 
 /--
 The modules of `i`'s environment in the order core loads them when elaborating `i`, with their
-final flags. This replicates `importModulesCore`'s traversal (`Lean/Environment.lean`, `v4.33.1`)
+final flags. This replicates `importModulesCore`'s traversal (`Lean/Environment.lean`, `v4.36.0`)
 over the imports recorded in the oleans: a module is pushed after its imports on first discovery,
 and later discoveries only strengthen its flags. Modules are imported at the `.exported` level by
-module-system files and at the `.private` level otherwise (`Lean/Elab/Import.lean:147-153`). The
+module-system files and at the `.private` level otherwise (`Lean/Elab/Import.lean:150-156`). The
 order can differ from `ModuleIdx` order, which comes from the roots' traversal.
 -/
 public partial def loadOrder (i : ModuleIdx) : Array LoadedModule := Id.run do
@@ -228,7 +229,7 @@ public partial def loadOrder (i : ModuleIdx) : Array LoadedModule := Id.run do
 
 /--
 For a name declared in several modules (`dupDecls`), the declarer whose copy the environment with
-load order `order` shows, by core's rule in `finalizeImport` (`Lean/Environment.lean:2340-2341`): a
+load order `order` shows, by core's rule in `finalizeImport` (`Lean/Environment.lean:2705-2706`): a
 later copy replaces the current one if it subsumes it, so among copies identical up to binder
 annotations, the last loaded wins. Copies that are equal for the kernel (`subsumesInfo` compares
 types with `==`, which ignores binder annotations) can still elaborate differently.

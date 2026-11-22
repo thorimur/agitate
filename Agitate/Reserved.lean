@@ -12,8 +12,9 @@ Reserved names, computed from the olean index.
 `lake shake` ignores references to reserved names, deciding them with `isReservedName env`, i.e. by
 running the predicates that core registers with `registerReservedNamePredicate`. Those take an
 `Environment`, which agitate does not build. So each predicate is ported here from its Lean
-`v4.33.1` source (the source location is named on each), with environment queries replaced by the
-`Index` lookups that mirror them.
+`v4.36.0` source (the source location is named on each), with environment queries replaced by the
+`Index` lookups that mirror them. Changes since the `v4.33.1` port: `bv_decide`'s enum names became
+private (`bvEnumsFor?`), and partial-fixpoint induction gained the `strong_` variants.
 
 Two semantics are supported (see DESIGN.md, "Reserved names"):
 * `upstream`: exactly `lake shake`, whose environment has an anonymous `mainModule` and an
@@ -175,13 +176,24 @@ def methodSpecsFor? (name : Name) : Option Name := do
 
 def methodSpecs (name : Name) : Bool := (methodSpecsFor? cx name).isSome
 
-/-- `Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean`. -/
-def bvEnums (name : Name) : Bool := Id.run do
-  let .str p s := name | return false
-  return s == Tactic.BVDecide.Normalize.enumToBitVecSuffix ||
-    s == Tactic.BVDecide.Normalize.eqIffEnumToBitVecEqSuffix ||
-    s == Tactic.BVDecide.Normalize.enumToBitVecLeSuffix ||
-    (s == Tactic.BVDecide.Normalize.matchEqCondSuffix && isMatcherCore cx p)
+open Tactic.BVDecide.Normalize in
+/--
+`Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean`: the predicate, via `isRealizedName?`, returning
+the enum type or matcher. The names are private to the module realizing them (`mkRealizedName`).
+-/
+def bvEnumsFor? (name : Name) : Option Name := Id.run do
+  let .str p s := name | return none
+  -- `isRealizedName?.isSupportedSuffix`
+  unless s == enumToBitVecSuffix || s == eqIffEnumToBitVecEqSuffix || s == enumToBitVecLeSuffix ||
+      s == matchEqCondSuffix do
+    return none
+  let some declName := [p, privateToUserName p].find? cx.ix.contains | return none
+  -- `mkRealizedName`
+  if name != mkPrivateName cx name (.str declName s) then return none
+  if s == matchEqCondSuffix && !isMatcherCore cx declName then return none
+  return some declName
+
+def bvEnums (name : Name) : Bool := (bvEnumsFor? cx name).isSome
 
 /-- `Lean/Meta/Tactic/FunInd.lean`: `isFunInductName`. -/
 def funInduct (name : Name) : Bool := Id.run do
@@ -225,17 +237,17 @@ def fixpointInduct (name : Name) : Bool := Id.run do
     if let some eqnInfo := find? p then
       return eqnInfo.fixpointType.all isPartialFixpoint
     return false
-  | "coinduct" =>
+  | "coinduct" | "strong_coinduct" =>
     if let some eqnInfo := find? p then
       let idx := eqnInfo.declNames.idxOf p
       return isCoinductiveFixpoint eqnInfo.fixpointType[idx]!
     return false
-  | "induct" =>
+  | "induct" | "strong_induct" =>
     if let some eqnInfo := find? p then
       let idx := eqnInfo.declNames.idxOf p
       return isInductiveFixpoint eqnInfo.fixpointType[idx]!
     return false
-  | "mutual_induct" =>
+  | "mutual_induct" | "strong_mutual_induct" =>
     if let some eqnInfo := find? p then
       return eqnInfo.declNames[0]! == p && eqnInfo.declNames.size > 1 && eqnInfo.fixpointType.all isLatticeTheoretic
     return false
@@ -289,8 +301,10 @@ public def isReserved (n : Name) : Bool :=
 
 /--
 The declaration a reserved name is regenerated from: the definition for equation lemmas, the matcher
-for matcher equations, the instance for method specs, and otherwise the name's prefix (the
-constructor, inductive, function, …). If that is not an imported constant, its nearest prefix that is.
+for matcher equations, the instance for method specs, the enum type or matcher for `bv_decide`'s
+enum names (which are private, so their prefix is not the base), and otherwise the name's prefix
+(the constructor, inductive, function, …). If that is not an imported constant, its nearest prefix
+that is.
 `none` if `n` is not reserved.
 
 `agitate` counts a reference to a reserved name as a reference to this declaration, since
@@ -302,6 +316,7 @@ public def reservedBase? (n : Name) : Option Name := do
     if let some (declName, _) := (if eqns cx n then declFromEqLikeName cx n else none) then declName
     else if let some p := matchEqFor? cx n then p
     else if let some p := methodSpecsFor? cx n then p
+    else if let some p := bvEnumsFor? cx n then p
     else n.getPrefix
   let rec findConst : Name → Option Name
     | .anonymous => none

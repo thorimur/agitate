@@ -7,9 +7,9 @@ This part was written by me (Thomas R. Murrills). The rest is Claude, under supe
 
 ---
 
-A Lean import minimizer: a reimplementation of `lake shake` (Lean `v4.33.1`). It reads `.olean`
+A Lean import minimizer: a reimplementation of `lake shake` (Lean `v4.36.0`). It reads `.olean`
 files directly instead of importing the whole environment, and it is much faster. On Mathlib it
-takes ~12 s where `lake shake` takes ~140 s; on core's `Lean` library, ~1 s instead of 4.5 s.
+takes ~10–12 s where `lake shake` takes ~140–160 s; on core's `Lean` library, ~1 s instead of 5–7 s.
 
 Its output is byte-identical to `lake shake`'s, except that agitate fixes two bugs in how reserved
 names are recognised, and by default it counts references to reserved names as references to the
@@ -33,7 +33,8 @@ workspace's packages, root package first, then the toolchain. It does not use `L
 difference. Without modules, the root package's default targets are checked, as `lake shake` does.
 
 The options match `lake shake`: `--keep-implied`, `--keep-prefix`, `--keep-public`, `--add-public`,
-`--gh-style`, `--explain`, `--trace`, `--fix` and `--only <MODULE>`. agitate adds:
+`--add-downstream <MODULE>`, `--add-public-downstream <MODULE>`, `--gh-style`, `--explain`,
+`--trace`, `--fix` and `--only <MODULE>`. agitate adds:
 
 * `--profile`: print per-phase timings to stderr (runs the phases one after another).
 * `--compat`: behave exactly like `lake shake`: `--upstream-reserved`, `--ignore-reserved-refs`,
@@ -70,12 +71,13 @@ date. The exit code is 1 if any edits are suggested (without `--fix`), and 0 oth
 Non-module imports re-export everything, so there is one kind of need and no `public`/`meta`:
 needed modules are the declarers of referenced constants and of names preresolved by quotations,
 recorded extra uses (notation, `simp` lemmas, …) and reachable indirect uses. It takes the options above except `--keep-public`,
-`--add-public`, `--upstream-indirect` and `--compat`. `shake: keep` goes on an import line as
+`--add-public`, `--add-downstream`, `--add-public-downstream`, `--upstream-indirect` and `--compat`. `shake: keep` goes on an import line as
 usual; `shake: keep-all` and `shake: keep-downstream` go in any comment in the header, since there
 is no `module` token to attach them to. Imports of module-system code (such as core) work as usual.
 
 Shake cannot see dependencies that leave no trace in the oleans, such as `open` of a namespace
-whose declarations are otherwise unused. Mark such imports `-- shake: keep`. `lake shake` has the
+whose declarations are otherwise unused, or `bv_decide`'s check that `Std.Tactic.BVDecide` itself
+is imported. Mark such imports `-- shake: keep`. `lake shake` has the
 same blind spot.
 
 ## Converting to the module system: `modulate`
@@ -103,7 +105,7 @@ fail where a module needs more than imports:
 * split meta and non-meta sections, for files that mix both.
 
 The options above for import analysis also apply, except `--keep-public`, `--add-public`,
-`--upstream-indirect` and `--compat`.
+`--add-downstream`, `--add-public-downstream`, `--upstream-indirect` and `--compat`.
 
 ## Declaration needs: `percolate`
 
@@ -250,7 +252,9 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   `--fix`. `lake shake --fix` and `agitate --compat --fix` must leave identical sources. agitate's
   default `--fix` result must build, while upstream's is known not to (an upstream bug, see
   `DESIGN.md`). Ignoring the `simp` kind must still build; ignoring the `instance` kind must not.
-  With `--ignore-preresolved`, the result must fail at `Fixture/QuotUse.lean`.
+  With `--ignore-preresolved`, the result must fail at `Fixture/QuotUse.lean`. Finally it runs
+  `agitate-check` on the fixture, whose `BvEnum` and `StrongInduct` realize reserved names that
+  changed in Lean `v4.36.0`.
 * `scripts/test-fixture-nonmodule.sh` tests `agitate-nonmodule` without an oracle, and `modulate`.
   Without `--meta`, the converted fixture must fail at `Fixture/MetaMacro.lean`; with
   `--meta Fixture.MetaMacro`, it must build. It checks

@@ -31,7 +31,10 @@ def initMatcherExt (env : Environment) : IO Environment := do
   let ext := Meta.Match.Extension.extension
   let is := ext.toEnvExtension.getState env
   let newState ← ext.addImportedFn is.importedEntries { env := env, opts := {} }
-  return ext.toEnvExtension.setState (asyncMode := .sync) env { is with state := newState }
+  -- unlogged: nothing has been recorded against this environment yet (as in core's
+  -- `finalizePersistentExtensions`, which this replays)
+  return ext.toEnvExtension.setState (asyncMode := .sync) (log := .unlogged) env
+    { is with state := newState }
 
 structure Report where
   checks : Nat := 0

@@ -5,12 +5,13 @@
 #
 #   scripts/test-batteries-nonmodule.sh <batteries-dir>
 #
-# <batteries-dir> is a Batteries checkout matching the toolchain (e.g. Mathlib v4.33.1's
+# <batteries-dir> is a Batteries checkout matching the toolchain (e.g. Mathlib v4.36.0's
 # `.lake/packages/batteries`). The script converts a copy with `demodularize.py` and applies three
 # test-data patches. Two modules reach private core declarations through `import all`, which a
 # non-module import cannot, so they are dropped. `Batteries.lean` is marked `shake: keep-all`, so the
-# rebuild still covers every module. One import gets `shake: keep`, because its file only `open`s
-# namespaces, which shake cannot see (`lake shake` suggests the same removal on the original). Then:
+# rebuild still covers every module. In Batteries before 2026-10-05, one import gets `shake: keep`,
+# because its file only `open`s namespaces, which shake cannot see (`lake shake` suggests the same
+# removal on the original). Then:
 # the copy must build, the `--fix` result must build, and a second run must suggest nothing.
 set -euo pipefail
 src="$(cd "$1" && pwd)"
@@ -28,8 +29,11 @@ rm Batteries/Lean/Meta/Simp.lean Batteries/Tactic/Lint/Simp.lean
 sed -i.bak '/^import Batteries.Lean.Meta.Simp$/d; /^import Batteries.Tactic.Lint.Simp$/d' \
   Batteries.lean Batteries/Tactic/Lint.lean Batteries/Data/DList/Basic.lean
 sed -i.bak '1s/^.*$/-- shake: keep-all/' Batteries.lean
-sed -i.bak 's/^import Lean.Elab.Command$/import Lean.Elab.Command -- shake: keep (for `open`)/' \
-  Batteries/Recycling/MonadSatisfying/Lean.lean
+# (Batteries before 2026-10-05 only: the file then moved to `batteries-recycling`.)
+if [[ -f Batteries/Recycling/MonadSatisfying/Lean.lean ]]; then
+  sed -i.bak 's/^import Lean.Elab.Command$/import Lean.Elab.Command -- shake: keep (for `open`)/' \
+    Batteries/Recycling/MonadSatisfying/Lean.lean
+fi
 find . -name '*.bak' -delete
 lake build Batteries > build.log 2>&1 || { echo "converted copy does not build:"; grep -m10 error build.log; exit 1; }
 echo "converted copy builds ($(find .lake/build/lib/lean -name '*.olean' | wc -l | tr -d ' ') modules)"

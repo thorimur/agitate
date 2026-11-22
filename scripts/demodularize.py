@@ -8,7 +8,8 @@ Usage: demodularize.py DIR ROOT
 Rewrites every `.lean` file under DIR/ROOT and DIR/ROOT.lean in place:
 * `module -- comment` becomes `-- comment` (so `shake:` markers survive);
 * `public`/`meta`/`all` are dropped from imports;
-* file-level `public section`, `@[expose] public section` and `public meta section` are dropped;
+* `public section`, `@[expose] public section` and `public meta section` become `section` (some
+  are closed by an `end`);
 * `public`/`meta` declaration modifiers and the `expose` attribute are dropped.
 
 This is mechanical and only meant for libraries as regular as Batteries; private declarations that
@@ -22,7 +23,7 @@ import sys
 def convert(s):
     s = re.sub(r'^module[ \t]*(--.*)?$', lambda m: m.group(1) or '', s, count=1, flags=re.M)
     s = re.sub(r'^(public )?(meta )?import (all )?', 'import ', s, flags=re.M)
-    s = re.sub(r'^(@\[expose\] )?public (meta )?section[ \t]*$\n?', '', s, flags=re.M)
+    s = re.sub(r'^(@\[expose\] )?public (meta )?section[ \t]*$', 'section', s, flags=re.M)
     s = re.sub(r'\bpublic (meta )?(?=(def|theorem|instance|structure|inductive|abbrev|class|opaque'
                r'|axiom|partial|unsafe|noncomputable)\b)', '', s)
     s = re.sub(r'(?m)^(\s*)meta (?=def\b)', r'\1', s)

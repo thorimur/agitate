@@ -10,6 +10,7 @@ public import Fixture.B
 public import Fixture.BinderA
 public import Fixture.BinderB
 public import Fixture.BinderUse
+public import Fixture.BvEnum
 public import Fixture.C
 public import Fixture.Downstream
 public import Fixture.DupA
@@ -46,5 +47,6 @@ public import Fixture.QuotTarget
 public import Fixture.QuotUse
 public import Fixture.SimpAttr
 public import Fixture.SimpUse
+public import Fixture.StrongInduct
 public import Fixture.Unused
 public import Fixture.UsesDownstream

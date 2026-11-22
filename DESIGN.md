@@ -1,14 +1,16 @@
 # agitate — design record
 
-`agitate` reimplements `lake shake` (Lean `v4.33.1`) so that it works directly from `.olean` files
+`agitate` reimplements `lake shake` (Lean `v4.36.0`) so that it works directly from `.olean` files
 instead of importing a whole `Environment`, and fixes the performance bottlenecks found along the
-way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
+way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`, except in "Toolchain
+bump to `v4.36.0`" and where another tag is named.
 
 ## Decisions
 
 | Decision | By | Status |
 |---|---|---|
-| Toolchain pinned to `leanprover/lean4:v4.33.1`. | Thomas | settled |
+| Toolchain pinned to `leanprover/lean4:v4.36.0`; it was `v4.33.1` until 2026-11-22 (see "Toolchain bump to `v4.36.0`"). | Thomas | settled |
+| Port `lake shake`'s `--add-downstream`/`--add-public-downstream` (new in `v4.36.0`) unchanged, as part of flag parity; `agitate` only, not `agitate-nonmodule` or `modulate`. | Claude | implemented; scope open |
 | Read modules with `readModuleData`/`readModuleDataParts`, never `importModules(Core)`/`finalizeImport`. | Thomas | settled, implemented (`Agitate/Index.lean`) |
 | Correctness criterion: byte-identical stdout and exit code to `lake shake` from the same toolchain, except for deliberate fixes recorded here. Each fix keeps an upstream-compatible flag so the strict comparison stays mechanical (`scripts/compare.sh`). | Claude, after Thomas asked for fixes over parity | open |
 | Fix the two reserved-name quirks rather than reproduce them; `--upstream-reserved` restores upstream behaviour. | Thomas | settled, implemented |
@@ -32,7 +34,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | `modulate`: from a non-module file's oleans, compute the module-system imports it would need under `@[expose] public section`, and with `--fix` convert it; `--meta GLOB` (Lake globs, module names) for `public meta section`. | Thomas (feature, name, globs), Claude (design) | implemented |
 | `--compat` selects every upstream-compatible behaviour at once; the parity checks use it, so new deviations do not break them. | Claude | implemented |
 | Port the reserved-name predicates over the olean index rather than approximate them; verify with `agitate-check`. | Claude | implemented, verified |
-| Test on Batteries first, Mathlib once things work; use Mathlib's `v4.33.1` tag and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
+| Test on Batteries first, Mathlib once things work; use Mathlib's tag for the toolchain (`v4.36.0`; `v4.33.1` before the bump) and its olean cache (it exists), which also brings matching Batteries oleans. | Thomas (order), Claude (setup) | settled |
 | Start from a verbatim copy of `Lake/CLI/Shake.lean` and replace its phases one at a time, checking parity after each. | Claude | done; the analysis logic in `Agitate/Shake.lean` is still upstream's apart from the marked changes |
 | Skip the `.ir`/`.ir.sig` parts (shake loads them only for `extraConstNames`, compiler auxiliary names that kernel terms never mention). | Claude | verified: `agitate-check` agrees with `getModuleIdxFor?` on every constant, and outputs are identical on core, Batteries and Mathlib |
 | Same CLI flags as `lake shake`; modules are passed explicitly for now. | Claude | open |
@@ -43,7 +45,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Remove the port of ImportGraph's `RequiredModules` (it was the wrong code: Thomas meant `ImportGraph/Shake/` and `WorkspaceModel/` at upstream `HEAD`). Revisit how agitate and `percolate` relate to those. | Thomas | removed; relation open |
 | Uses that Lean records only per module, or not at all, give two weaker statuses (`candidate`, `moduleUse`) rather than one coarse flag. | Claude | implemented; open |
 | JSON Lines, with records written one at a time, rather than one `Json` value. | Claude (agreed by Thomas) | implemented |
-| Recreate ImportGraph's declaration-needs model in agitate (no dependency; stay on `v4.33.1`), for performance, with upstreamable parts in `Agitate/ImportGraph`; exercise it through `percolate`, then bench and iterate. No syntax needs (syntax is an extra module use); no build-time recording (a limitation). | Thomas (direction, constraints); Claude (representations) | steps A and B implemented |
+| Recreate ImportGraph's declaration-needs model in agitate (no dependency; stay on `v4.33.1`, a constraint lifted when Thomas bumped to `v4.36.0`), for performance, with upstreamable parts in `Agitate/ImportGraph`; exercise it through `percolate`, then bench and iterate. No syntax needs (syntax is an extra module use); no build-time recording (a limitation). | Thomas (direction, constraints); Claude (representations) | steps A and B implemented |
 
 ## Results
 
@@ -167,9 +169,9 @@ them.
 
 `lake shake` ignores references to reserved names ("they can be re-generated in-place",
 `getDepConstName?`). Reserved-ness is `isReservedName env c` (`Lean/ResolveName.lean:52`). It runs
-the predicates that `builtin_initialize` registered in the running binary: 13 at `v4.33.1`, namely
-Eqns, MatchEqs ×2, CongrTheorems, CtorIdxHInj, Injective, SparseCasesOnEq, MethodSpecs, BVDecide
-Enums, FunInd ×2 and PartialFixpoint ×2. A runtime probe mapped each registered closure to one of
+the predicates that `builtin_initialize` registered in the running binary: 13 at `v4.33.1` and
+`v4.36.0`, namely Eqns, MatchEqs ×2, CongrTheorems, CtorIdxHInj, Injective, SparseCasesOnEq,
+MethodSpecs, BVDecide Enums, FunInd ×2 and PartialFixpoint ×2. A runtime probe mapped each registered closure to one of
 them, and `agitate-check` checks the count. A binary registers the full set only if its `main` calls
 `lean_initialize()`, which runs `initialize_Lean(builtin)` (`src/initialize/init.cpp:37`). The
 emitted `main` does so whenever the program uses the Lean API.
@@ -188,7 +190,8 @@ unaffected.
 
 ### Fixes (Thomas: fix rather than reproduce)
 
-`Agitate/Reserved.lean` ports each predicate from its `v4.33.1` source. The ports replace
+`Agitate/Reserved.lean` ports each predicate from its `v4.33.1` source, updated to `v4.36.0` (see
+"Toolchain bump to `v4.36.0`"). The ports replace
 environment queries with the index lookups that mirror them, and take a `Ctx`. With
 `upstream := false` (the default), `mainModule` is the module that declared the name being tested,
 and `isMatcherCore` sees all imported matchers. With `upstream := true` (`--upstream-reserved`), they
@@ -359,6 +362,12 @@ while nothing references a constant. `lake shake` suggests the same removal on t
 file. Thomas's decision: such cases get `-- shake: keep`, not code.
 
 ## Known blind spots
+
+**Not fixed: checks for a module by name.** `bv_decide` refuses to run unless a module named
+`Std.Tactic.BVDecide` is loaded (`ensureBvDecide`, Lean `v4.36.0`). The oleans show only the
+submodules that the proof uses, so shake, upstream included, replaces the import. As with `open`,
+mark such imports `-- shake: keep` (Thomas's decision above). Found in the `v4.36.0` bump
+(`tests/fixture/Fixture/BvEnum.lean`).
 
 **Fixed: duplicate declarations (reported by another session exercising agitate's results).**
 Lean lets imports merge identical theorems declared in unrelated modules (`subsumesInfo`,
@@ -765,7 +774,9 @@ flow scale linearly (2.5 s and 4.7 s at 1M). *Pitfall found while testing:* labe
 ## Declaration needs: recreating ImportGraph's model
 
 **Thomas's constraints.**
-* Do not depend on ImportGraph: "we do need to stay on 4.33.1 for now". Copy its types under
+* Do not depend on ImportGraph: "we do need to stay on 4.33.1 for now" (the toolchain has since
+  moved to `v4.36.0`; ImportGraph `HEAD` was on `v4.37.0-rc1`, see "ImportGraph at `HEAD`"). Copy
+  its types under
   `Agitate/ImportGraph/Copied` if sharing them, or recreate them from scratch for performance.
 * "port things in the most performant way we can", in clearly marked upstreamable parts.
 * Then use `percolate` to exercise the abstractions, and "make decisions there, then bench and
@@ -976,6 +987,77 @@ relates to them is open (TODO). Paths are in that repository.
   file or one command, interactively.
 * **`Bitset`** is shake's `Nat` (`Shake/Core.lean:41-65`). Iteration takes `log2` and clears the bit
   per element (`Shake/Basic.lean:72-95`).
+
+## Toolchain bump to `v4.36.0`
+
+Thomas asked for the bump from `v4.33.1` on 2026-11-22. Citations in this section are at `v4.36.0`.
+Parity with `lake shake` at the new tag needed the upstream changes below. Claude found them by
+diffing, between the two tags, the sources that agitate copies or ports: `Lake/CLI/Shake.lean` and
+`Lake/CLI/Main.lean`; the files registering reserved-name predicates and their helpers; and
+`Lean/Environment.lean`, `EnvExtension.lean`, `Attributes.lean`, `Compiler/MetaAttr.lean`,
+`ExtraModUses.lean` and `Elab/Import.lean`. Repeat this on the next bump.
+
+* **`lake shake --add-downstream M` / `--add-public-downstream M`** (new; parsed in
+  `Lake/CLI/Main.lean:294-299`). Every checked module outside `M`'s import closure gets `M` as a
+  (`public`) import, which transitive reduction then drops where it is already implied. The modules
+  in `M`'s closure are visited first, so that their imports are final (`getImportClosure`).
+  `Agitate/Shake.lean` carries the change verbatim. agitate's `ModuleIdx` order is post-order, like
+  core's, so the closure walk, which goes down from `M`'s index, is valid. The fixture matrix runs
+  both flags, and `--add-public-downstream Batteries.Tactic.Alias` is IDENTICAL on Batteries too.
+* **`bv_decide`'s enum names became private** (`Lean/Meta/Tactic/BVDecide/Normalize/Enums.lean`:
+  `mkRealizedName`, `isRealizedName?`). The predicate now requires the name to equal
+  `mkPrivateName env (T ++ suffix)` for a constant `T`. Ported as `Reserved.bvEnumsFor?`. Under
+  `--upstream-reserved` (anonymous `mainModule`), such names are never reserved, like private
+  equation lemmas. `reservedBase?` maps them to `T`; their prefix `_private.M.0.T` is not a
+  constant unless `T` is private.
+* **Partial-fixpoint induction gained `strong_induct`, `strong_coinduct` and
+  `strong_mutual_induct`** (`isInductName`,
+  `Lean/Elab/PreDefinition/PartialFixpoint/Induction.lean:383-408`). Ported.
+* **Unchanged.** The other eleven predicates and their helpers; still 13 predicates in the same 13
+  files. Also unchanged are `importModulesCore`, `finalizeImport`'s duplicate rule (now
+  `Lean/Environment.lean:2705-2706`) and `ModuleData`. Most of the `Environment.lean` diff is new
+  machinery that logs extension writes (`logWrites`) and tracks generations. It does not affect
+  reading oleans. `MapDeclarationExtension`'s default export now keeps only exported names at the
+  exported and server levels. `agitate-check` passes on core, Batteries and Mathlib, which covers
+  the extension lookups.
+* **`agitate-check`** replays the matcher extension's `addImportedFn`. Its `setState` must now say
+  `log := .unlogged`, as core's `finalizePersistentExtensions` does. Otherwise
+  `EnvExtension.modifyState` panics for an extension with `logWrites` (`Lean/Environment.lean:1707-1714`).
+  The panic returned the environment and the write still happened, so the checks were not affected.
+
+**Test data for the changed predicates.** No library at hand was known to realize the new names, so
+`tests/fixture` gained `Fixture/BvEnum.lean` and `Fixture/StrongInduct.lean`, and
+`scripts/test-fixture.sh` now runs `agitate-check Fixture`. With the `v4.33.1` predicates, the check
+fails on them: 4 mismatches under upstream semantics (three enum names, `Reach.strong_induct`) and
+1 under the fixed ones (`Reach.strong_induct`). With the ports, it passes.
+
+`bv_decide` checks only that a module named `Std.Tactic.BVDecide` is loaded (`ensureBvDecide`,
+`Lean/Elab/Tactic/BVDecide.lean:92-95`). Nothing in the oleans records this, so shake, upstream
+included, replaces the umbrella import by the submodules that the proof uses, and the tactic then
+refuses to run. This is another dependency that is invisible in the oleans (see "Known blind
+spots"). The fixture marks the import `-- shake: keep`.
+
+**Batteries test data.** At the commit that Mathlib `v4.36.0` pins (`b4b25a3`),
+`Batteries/Recycling/MonadSatisfying/Lean.lean` has moved to `batteries-recycling`, so
+`scripts/test-batteries-nonmodule.sh` patches it only if it exists. `BinaryHeap/WF.lean` closes a
+`public section` with `end`, so `demodularize.py` now turns such lines into `section` instead of
+deleting them.
+
+**Results at `v4.36.0`.** Core: 2419 modules in the closure, 212 552 constants. Batteries: 1404 /
+137 256. Mathlib: 11 125 / 807 065. Outputs are IDENTICAL with `--compat` on all three, and on the
+fixture matrix. `agitate-check` passes on all three (Mathlib: 5 701 112 checks).
+`test-fixture-nonmodule.sh`, `test-batteries-nonmodule.sh`, `test-importgraph.sh`,
+`test-percolate.sh` and `test-require.sh` pass. Wall times, two runs each:
+
+| wall time | `lake shake` | agitate `--compat` | agitate |
+|---|---|---|---|
+| core (`Lean`) | 5.0–7.0 s | 0.86–0.90 s | 0.70 s |
+| Batteries | 1.4–2.1 s | 0.29–0.31 s | 0.29–0.36 s |
+| Mathlib | 137–159 s | 9.8–16.5 s | 9.7–11.9 s |
+
+On Mathlib, `--profile` gave: read oleans 1.0–1.2 s, constant maps 0.24–0.25 s, `calcNeeds`
+3.7–4.3 s, header parsing 0.4–0.6 s and the `visitModule` loop 2.4–3.1 s. The first run followed
+the olean download; ranges reflect this machine's page-cache eviction.
 
 ## Rejected / deferred
 

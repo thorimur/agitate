@@ -4,8 +4,9 @@ Copyright (c) 2026 Thomas Murrills. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Mario Carneiro, Sebastian Ullrich, Thomas Murrills
 
-Copied from `src/lake/Lake/CLI/Shake.lean` at Lean `v4.33.1` (commit 819816b2e0a3), then modified
-for `agitate`, with each change marked `agitate` in place:
+Copied from `src/lake/Lake/CLI/Shake.lean` at Lean `v4.33.1` (commit 819816b2e0a3) and updated to
+`v4.36.0` (commit 611c117bfaf7; this added `--add-downstream`/`--add-public-downstream`), then
+modified for `agitate`, with each change marked `agitate` in place:
 * modules are read from their oleans (`Agitate.Index`) instead of importing an `Environment`;
 * reserved names are decided lazily by the ported predicates (`Agitate.Reserved`);
 * a `ByteArray` bitset, set-bit iteration in `visitModule`, and memoised reference resolution in
@@ -410,17 +411,29 @@ def initState (ix : Index) (args : Args) : State := Id.run do
   s := { s with transDepsOrig := s.transDeps }
   return s
 
+/--
+Returns for each module whether it is a reflexive-transitive import of `i`, disregarding visibility.
+-/
+def getImportClosure (s : State) (i : Nat) : Array Bool := Id.run do
+  let mut closure := Array.replicate s.ix.size false |>.set! i true
+  for j in (0...=i).toArray.reverse do
+    if closure[j]! then
+      for imp in s.ix.imports j do
+        closure := closure.set! (s.ix.getModuleIdx? imp.module |>.get!).toNat true
+  return closure
+
 /-- Analyze and report issues from module `i`. Arguments:
 
 * `pkgs`: the first components of the input modules
 * `source?`: the module's source file (`Resolver.source?`), for reporting and `--gh-style`
 * `i`: the module index
 * `needs`: the module's calculated needs
+* `addDownstream`: if true, ensure that the module has the import `args.addDownstream?`
 * `addOnly`: if true, only add missing imports, do not remove unused ones
 -/
 def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePath))
     (i : Nat) (needs : Needs) (header : ParsedHeader) (args : Args)
-    (addOnly := false) : StateT State IO Unit := do
+    (addDownstream := false) (addOnly := false) : StateT State IO Unit := do
   let ⟨_, _, headerStx, _⟩ := header
   let modName := (← get).modNames[i]!
   if (← get).ix.isExtraRevModUse i then
@@ -501,6 +514,12 @@ def visitModule (pkgs : Array Name) (source? : Name → IO (Option System.FilePa
         let k' := { k with isMeta := false, isExported := k.isExported && args.addPublic }
         deps := deps.insert k' j
         reasons := reasons.insert (j, k') s!"`--keep-downstream`/extra rev use in `{s.modNames[j]!}`"
+  if let some imp := guard addDownstream *> args.addDownstream? then
+    let j : Nat := s.ix.getModuleIdx? imp.module |>.get!
+    let k := NeedsKind.ofImport imp
+    deps := deps.insert k j
+    reasons := reasons.insert (j, k) <|
+      if k.isExported then "`--add-public-downstream`" else "`--add-downstream`"
 
   -- Do transitive reduction of `needs` in `deps`.
   if !addOnly then
@@ -740,6 +759,10 @@ public def run (args : Args) (r : Resolver) : IO UInt32 := do
   let s ← timed "initState (transDeps)" <| IO.lazyPure fun _ => initState ix args
   if args.profile then
     IO.eprintln s!"[profile] {ix.size} modules, {ix.privConsts.size} constants"
+  if let some imp := args.addDownstream? then
+    if ix.getModuleIdx? imp.module |>.isNone then
+      throw <| .userError s!"cannot add `{imp.module}` downstream, \
+        it is not imported by any of the checked modules"
   if args.listIndirectKinds then
     printIndirectKinds ix
     return 0
@@ -768,10 +791,19 @@ public def run (args : Args) (r : Resolver) : IO UInt32 := do
 
   -- Check all selected modules
   let t0 ← IO.monoNanosNow
-  for i in [0:s.ix.size], t in needs, header in headers do
-    match header.get with
+  let mut order := Array.range s.ix.size
+  -- The modules we must not add the `--add-(public-)downstream` import to, as doing so would
+  -- create an import cycle
+  let mut noAddDownstream := Array.replicate s.ix.size true
+  if let some imp := args.addDownstream? then
+    noAddDownstream := getImportClosure s (s.ix.getModuleIdx? imp.module |>.get!).toNat
+    -- Visit them first so that their import closures are final when we add the import to the
+    -- remaining modules
+    order := order.filter (noAddDownstream[·]!) ++ order.filter (!noAddDownstream[·]!)
+  for i in order do
+    match headers[i]!.get with
     | .ok h =>
-      visitModule pkgs r.source? i t.get h args
+      visitModule pkgs r.source? i needs[i]!.get h args (addDownstream := !noAddDownstream[i]!)
     | .error e =>
       println! e.toString
   if args.profile then
