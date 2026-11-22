@@ -478,7 +478,11 @@ tools synthesize the extra module use that Lean does not record:
     and `Lean.Exception` (its `elab_rules` quotes `logInfo`, `ofExcept`). Elaborators often quote
     core API, and their declarations are exported, so a public import of a core module can
     appear where a meta import used to be enough.
-  * Cost: `calcNeeds` on core 275–282 ms with and without the scan (`--profile`, two runs each).
+  * Cost (`--profile`, two runs each). Core: `calcNeeds` 275–282 ms with and without the scan.
+    All of Mathlib: `calcNeeds` 3831–3905 ms with the scan, 3670–3710 ms without (+120 to
+    +235 ms, about 4%). Warm wall time is 9.0 s with the scan, 8.8–9.1 s without, i.e. within
+    noise. The cost is the second traversal of the constants of modules that mention
+    `Syntax.Preresolved.decl`; folding the scan into the main `foldConsts` pass would remove it.
 * `--ignore-preresolved` (part of `--compat`) restores upstream. Tests:
   `QuotTarget`/`QuotMacro`/`QuotHelperTarget`/`QuotHelper`/`QuotUse` in the module fixture,
   `QuotTarget`/`QuotMacro`/`QuotUse` in the non-module one. With `--ignore-preresolved`, the
