@@ -140,7 +140,7 @@ def moduleNeeds (refs : RefCtx) (a : Analysis) (i : ModuleIdx) : ModuleNeeds := 
     if j == i then
       if !metaItems.contains src && isMetaprogram ix ci.name then metaItems := metaItems.insert src
       if !rflItems.contains src && rfl.contains ci.name then rflItems := rflItems.insert src
-    let (names, kinds) := constRefs refs ci
+    let (names, kinds) := constRefs refs ci (code := (stanceOf ix ci.name).phase != Phase.none)
     let mut codes : Array Nat := #[]
     for h : e in 0...names.size do
       let n := names[e]
@@ -320,7 +320,7 @@ def explainNeeds (refs : RefCtx) (a : Analysis) (wanted : Std.HashMap Nat (Array
       let some r := a.items[i]!.constItem[ci.name]? | continue
       let u := a.globalId r
       let some vs := wanted[u]? | continue
-      let (names, kinds) := constRefs refs ci
+      let (names, kinds) := constRefs refs ci (code := (stanceOf ix ci.name).phase != Phase.none)
       for h : e in 0...names.size do
         if let some (m, jm, redirected) := resolveDecl refs order i names[e] then
           if let some v := a.itemOf? m jm then

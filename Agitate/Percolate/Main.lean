@@ -10,7 +10,7 @@ deletes the rest. Output is JSON Lines: a header, then one record per item (`Rec
 -/
 module
 
-public import Agitate.Percolate.Needs
+public import Agitate.Percolate.Imports
 public import Agitate.Workspace
 public import Lake.Config.Glob
 public import Lean.Data.Json.FromToJson.Basic
@@ -29,6 +29,8 @@ structure Args where
   scope : Array Lake.Glob := #[]
   output : Option System.FilePath := none
   profile : Bool := false
+  /-- The statuses whose items the deletion tool deletes (for the imports after deletion). -/
+  delete : Array String := #["unused"]
   /-- Root modules to load (default: the root package's default targets). -/
   mods : Array Name := #[]
 
@@ -49,12 +51,21 @@ OPTIONS:
   --scope <GLOB>   report only items of modules matching GLOB (repeatable; Lake globs: `Foo`,
                    `Foo.*` for `Foo` and its submodules, `Foo.+` for its submodules only)
   -o <FILE>        write to FILE instead of stdout
+  --delete <STATUS,...>
+                   the statuses of the items to be deleted (default `unused`; `none` deletes
+                   nothing); the module records give each module's imports after deleting them
   --profile        print per-phase timings to stderr
 "
 
 partial def parseArgs (args : Args) : List String → Except String Args
   | [] => .ok args
   | "--profile" :: rest => parseArgs { args with profile := true } rest
+  | "--delete" :: ss :: rest =>
+    let ss := if ss == "none" then #[] else (ss.splitOn ",").toArray
+    if ss.all (["unused", "moduleUse", "candidate"].contains ·) then
+      parseArgs { args with delete := ss } rest
+    else .error s!"invalid statuses `{",".intercalate ss.toList}` \
+      (allowed: unused, moduleUse, candidate, or none)"
   | "--seed" :: n :: rest => parseArgs { args with seeds := args.seeds.push n.toName } rest
   | "--seeds" :: f :: rest => parseArgs { args with seedFiles := args.seedFiles.push f } rest
   | "-o" :: f :: rest => parseArgs { args with output := some f } rest
@@ -62,7 +73,7 @@ partial def parseArgs (args : Args) : List String → Except String Args
     match Lake.Glob.ofString? g with
     | some g => parseArgs { args with scope := args.scope.push g } rest
     | none => .error s!"invalid glob `{g}`"
-  | [opt@"--seed"] | [opt@"--seeds"] | [opt@"-o"] | [opt@"--scope"] =>
+  | [opt@"--seed"] | [opt@"--seeds"] | [opt@"-o"] | [opt@"--scope"] | [opt@"--delete"] =>
     .error s!"missing argument to `{opt}`"
   | arg :: rest =>
     if arg.startsWith "-" then .error s!"unknown option `{arg}`"
@@ -87,6 +98,17 @@ structure Header where
   format : String := "percolate/1"
   /-- The seeds; records refer to them by index. -/
   seeds : Array Name
+  /-- The statuses of the items to be deleted, which the module records assume. -/
+  delete : Array String
+deriving ToJson
+
+/-- One project module, after the deletion: its imports, as they would be written. -/
+structure ModuleRecord where
+  module : Name
+  file : Option String
+  imports : Array String
+  /-- Whether `imports` differ from the current ones (as sets). -/
+  importsChanged : Bool
 deriving ToJson
 
 deriving instance ToJson for Why
@@ -143,7 +165,8 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
   let modules ← timed "readModules" <| readModules r.olean args.mods (allowNonModule := true)
   let ix ← timed "Index.build" <|
     Index.build modules (Reserved.extNames ++
-      #[declRangeExt.toPersistentEnvExtension.name, backwardDefeqAttr.ext.name])
+      #[declRangeExt.toPersistentEnvExtension.name, backwardDefeqAttr.ext.name,
+        regularInitAttr.ext.name])
   let refs : RefCtx := { ix, reserved := { ix, upstream := false }, reservedRefsToBase := true,
                          indirectModUses := {}, implementedByNeeds := true,
                          resolveDuplicates := true, preresolvedNeeds := true }
@@ -164,8 +187,11 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
     | some p => do pure (IO.FS.Stream.ofHandle (← IO.FS.Handle.mk p .write))
     | none => IO.getStdout
   let whys ← timed "why (parallel)" <| IO.lazyPure fun _ => res.whys refs a seedIds
+  let deleted (v : Nat) : Bool := args.delete.contains (res.status v).toString
+  let isToolchain := ix.modNames.map fun m => (r.ws.findTargetModule? m).isNone
+  let imports ← timed "imports after deletion" <| importsAfter refs a isToolchain deleted args.profile
   timed "output" do
-    out.putStrLn (toJson ({ seeds := seedNames } : Header)).compress
+    out.putStrLn (toJson ({ seeds := seedNames, delete := args.delete } : Header)).compress
     for i in 0...ix.size do
       let mod := ix.modName i
       if !isProject[i]! || !(args.scope.isEmpty || args.scope.any (·.matches mod)) then continue
@@ -186,6 +212,17 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
           attributeCmds
           why? := whys[v]! }
         out.putStrLn (toJson rec_).compress
+    for i in 0...ix.size do
+      let mod := ix.modName i
+      let some imps := imports[i]! | continue
+      if !(args.scope.isEmpty || args.scope.any (·.matches mod)) then continue
+      let isModule := ix.modules[i]!.priv.isModule
+      let now := importStrings (ix.imports i) isModule
+      let after := importStrings imps isModule
+      let rec_ : ModuleRecord := {
+        module := mod, file := (← r.source? mod).map (·.toString), imports := after
+        importsChanged := !(now.all after.contains && after.all now.contains) }
+      out.putStrLn (toJson rec_).compress
     out.flush
   return 0
 

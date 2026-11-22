@@ -3,11 +3,12 @@ Copyright (c) 2026 Thomas Murrills. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Thomas Murrills
 -/
--- The seeds: `seed1` … `seed6` and `seedTree`.
+-- The seeds: `seed1` … `seed7` and `seedTree`.
 module
 
 public import Fixture.Base
 public import Fixture.Notation
+public import Fixture.Macros
 
 @[expose] public section
 
@@ -37,3 +38,5 @@ macro "three" : term => `(3)
 theorem seed4 : (three : Nat) = 3 := rfl
 
 macro "four" : term => `(4)
+
+theorem seed7 : six = 6 := rfl

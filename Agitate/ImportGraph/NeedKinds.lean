@@ -14,7 +14,8 @@ This recreates the part of ImportGraph's `DeclDeclNeedsKind` (`ImportGraph/Shake
 at `b9ec7f6`) that is recorded in `.olean` files, for performance rather than by copying:
 * `type`/`value` correspond to `expr .type`/`expr .value` (where in the *user* the reference is);
   ImportGraph's `isReExported` and upstream location are not modelled.
-* `runtimeIR` and `metaIR` are not modelled: they need the compiler's LCNF.
+* `code` corresponds to `runtimeIR` and `metaIR`: which of the two follows from the user's phase
+  (`Stance`), and re-export through same-module meta code from presentability.
 * `comptime` (syntax and indirect module uses) is per module in the oleans (extra module uses), so
   it is not a need between declarations here.
 The remaining flags record what ImportGraph does not: `implementedBy`, `preresolved` (names
@@ -49,6 +50,8 @@ def preresolved : NeedKinds := ⟨8⟩
 def structural : NeedKinds := ⟨16⟩
 /-- Reached through a declaration regenerated from the needed one (a reserved name or `_simp_`). -/
 def regenerated : NeedKinds := ⟨32⟩
+/-- Referenced by the user's code (compiled IR), whose phase then matters. -/
+def code : NeedKinds := ⟨64⟩
 
 instance : OrOp NeedKinds := ⟨fun a b => ⟨a.bits ||| b.bits⟩⟩
 
@@ -58,7 +61,8 @@ instance : OrOp NeedKinds := ⟨fun a b => ⟨a.bits ||| b.bits⟩⟩
 /-- The flags with their names, in order. -/
 def named : Array (NeedKinds × String) :=
   #[(type, "type"), (value, "value"), (implementedBy, "implementedBy"),
-    (preresolved, "preresolved"), (structural, "structural"), (regenerated, "regenerated")]
+    (preresolved, "preresolved"), (structural, "structural"), (regenerated, "regenerated"),
+    (code, "code")]
 
 /-- The names of the kinds in `k`. -/
 def toNames (k : NeedKinds) : Array String :=

@@ -57,3 +57,37 @@ def groups := groupRanges #[(`B.x, rng 2 2 2 9), (`C, rng 5 0 6 0), (`B, rng 1 0
 #guard groups.members == #[#[`B, `B.x], #[`B.y], #[`C]]
 #guard groups.groupOf[`B.x]? == some 0 && groups.groupOf[`C]? == some 2
 
+
+-- imports compose: a public import passes on what arrives publicly
+open ImportKind in
+#guard pub.andThen? priv == some priv && priv.andThen? pub == none && pub.andThen? metaPub == some metaPub
+-- `import all` passes on what arrives privately, and keeps privacy
+open ImportKind in
+#guard priv.andThen? all == some priv && all.andThen? all == some all
+
+-- a chain 0 ← 1 ← 2 of public imports: importing 2 publicly provides 0, so needs on 0 and 2 reduce
+-- to one import of 2
+def chainH : Hierarchy := Id.run do
+  let mut h : Hierarchy := #[]
+  for i in 0...3 do
+    h := h.push (h.provides i (if i == 0 then #[] else #[(i - 1, .pub)]))
+  return h
+def chainNeeds : ImportNeeds := ({} : ImportNeeds).insert { isExported := true } 0
+  |>.insert { isExported := true } 2
+#guard (chainNeeds.reduce chainH).toArray.map (fun (k, i) => (k.toImportString, i)) == #[("public import", 2)]
+-- a phased meta need is not met by a plain import
+def metaNeeds : ImportNeeds := ({} : ImportNeeds).insert { isExported := false, isMeta? := some true } 0
+#guard (metaNeeds.reduce chainH).toArray.map (fun (k, i) => (k.toImportString, i)) == #[("meta import", 0)]
+
+-- stances: public meta code using runtime code needs a public meta import; a theorem's proof only
+-- a private, phaseless one
+open NeedKinds in
+#guard ({ isPublic := true, phase := .meta } : Stance).importNeeds (value ||| code)
+    { isPublic := true, phase := .runtime } ==
+  #[{ isExported := false }, { isExported := true, isMeta? := some true }]
+open NeedKinds in
+#guard ({ isPublic := true } : Stance).importNeeds value { isPublic := true } == #[{ isExported := false }]
+-- runtime code needs even a constructor without `meta`
+open NeedKinds in
+#guard ({ isPublic := false, phase := .runtime } : Stance).importNeeds code { isPublic := true } ==
+  #[{ isExported := false, isMeta? := some false }]

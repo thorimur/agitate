@@ -113,6 +113,20 @@ def toArray (s : Bitset) : Array Nat := Id.run do
           out := out.push (8 * b + bit)
   return out
 
+/-- Whether every element of `a` is in `b`. -/
+def subset (a b : Bitset) : Bool := Id.run do
+  for h : i in 0...a.bytes.size do
+    if a.bytes[i] &&& ~~~(b.bytes.get! i) != 0 then return false
+  return true
+
+instance : HasSubset Bitset := ⟨fun a b => a.subset b⟩
+instance : DecidableRel (α := Bitset) (· ⊆ ·) := fun a b => inferInstanceAs (Decidable (a.subset b = true))
+
+instance : BEq Bitset := ⟨fun a b => a.subset b && b.subset a⟩
+
+/-- The elements in descending order. -/
+def toArrayRev (s : Bitset) : Array Nat := s.toArray.reverse
+
 instance : Repr Bitset where
   reprPrec s _ := repr s.toArray
 

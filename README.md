@@ -114,7 +114,7 @@ The options above for import analysis also apply, except `--keep-public`, `--add
 For some seed declarations, `percolate` finds which source declarations of the project
 they need, and which they do not, for a tool that deletes the rest. The project is the root
 package's modules. Its other options are `--scope <GLOB>` (report only the matching modules; Lake
-globs, repeatable), `-o <FILE>` and `--profile`.
+globs, repeatable), `--delete <STATUS,...>` (below), `-o <FILE>` and `--profile`.
 
 It reports **source items**: the span of a source file that deleting a declaration removes. An
 item is a maximal declaration range, including its docstring and attributes. It contains every
@@ -162,8 +162,28 @@ there is one line per item of the project's loaded modules, in module order and 
   For the other statuses, it names the rule (`metaprogram`, `rflTheorem` or `moduleUse`), an item of
   the using module, and whether the use is inside the item's own module (`sameModule`).
 
+After the item records come **module records**, one per project module, with the module's
+imports once the items to be deleted are gone:
+
+```
+{"module":"Fixture.Macros","file":"/…/Fixture/Macros.lean",
+ "imports":["public meta import Fixture.Runtime"],"importsChanged":false}
+```
+
+`--delete` names the statuses the deletion tool deletes: by default `unused`, and `none` keeps
+everything. The imports are minimal for what remains:
+* what the remaining declarations need, with the module system's visibility and phase rules,
+  including presentable meta code;
+* the extra module uses;
+* `meta import`s for extensions registered by runtime `initialize` that the module has entries in;
+* existing `import all`s, as shake keeps them.
+
+Files that declare nothing (such as `Mathlib.lean`) keep their imports. Non-module files get plain
+`import`s. `-- shake: keep` annotations are not read.
+
 Commands that declare nothing (`open`, `variable`, `example`, …) leave no trace in the oleans and
-are the deletion tool's business. `scripts/delete-items.py` is a minimal reference consumer.
+are the deletion tool's business. `scripts/delete-items.py` and `scripts/apply-imports.py` are
+minimal reference consumers.
 
 ## Code for upstream: `Agitate.ImportGraph`
 
@@ -174,6 +194,10 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   holds strongly connected components by an iterative Tarjan (`components`), label propagation over
   them (`flowForward`) and breadth-first search trees (`bfs`).
 * `NeedKinds`: kinds of need between declarations, as bit flags.
+* `Imports`: the algebra of module-system imports: kinds of import, their composition,
+  hierarchies, and minimal imports for a set of needs (`ImportNeeds.reduce`).
+* `Stance`: a declaration's visibility, exposure and phase, and the imports a need demands
+  (`Stance.importNeeds`).
 * `SourceItems`: grouping a module's declarations into maximal declaration ranges (`groupRanges`).
 * `Bitset`: the `ByteArray` bitset that agitate uses throughout.
 
@@ -201,7 +225,8 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   (`State.converting`).
 * `Agitate/Percolate/` (with `PercolateMain.lean`): `percolate`. `Items.lean` assigns constants to
   source items, `Needs.lean` builds the graph of needs between items, percolates the seeds and
-  explains the statuses, and `Main.lean` holds the CLI and output.
+  explains the statuses, `Imports.lean` computes the imports after deletion, and `Main.lean` holds
+  the CLI and output.
 * `AgitateCheck.lean`: `agitate-check`, the differential checker for the index (below).
 * `tests/fixture`, `tests/fixture-nonmodule`, `tests/fixture-percolate`: small workspaces whose
   modules each exercise one behaviour (comments say which). `tests/fixture-nonmodule.expected` and
@@ -237,9 +262,13 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   shadowed it.
 * `scripts/test-percolate.sh` tests `percolate` on `tests/fixture-percolate`:
   * golden outputs (`UPDATE=1` rewrites them);
-  * deleting the `unused` items, then also the `moduleUse` ones (`scripts/delete-items.py`), must
-    leave a fixture that builds, and a second run must report neither status;
+  * deleting the `unused` items, then also the `moduleUse` ones (`scripts/delete-items.py`), and
+    rewriting the imports as suggested for that deletion (`scripts/apply-imports.py`), must leave
+    a fixture that builds; a second run must report neither status and suggest no import change;
   * deleting the `candidate` items as well must not build.
+* `scripts/test-percolate-batteries.sh <batteries-dir>`: on a copy of Batteries, the imports
+  `percolate --delete none` suggests must build, and a second run must suggest no change. It also
+  reports in how many modules they equal `agitate --fix`'s.
 * `scripts/test-importgraph.sh` builds `AgitateTest.ImportGraph`, whose `#guard`s test
   `Agitate.ImportGraph`.
 * `.lake/build/bin/agitate-check <MODULE>...` (run in the workspace) compares every index query with core's answer

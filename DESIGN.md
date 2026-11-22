@@ -43,7 +43,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Remove the port of ImportGraph's `RequiredModules` (it was the wrong code: Thomas meant `ImportGraph/Shake/` and `WorkspaceModel/` at upstream `HEAD`). Revisit how agitate and `percolate` relate to those. | Thomas | removed; relation open |
 | Uses that Lean records only per module, or not at all, give two weaker statuses (`candidate`, `moduleUse`) rather than one coarse flag. | Claude | implemented; open |
 | JSON Lines, with records written one at a time, rather than one `Json` value. | Claude (agreed by Thomas) | implemented |
-| Recreate ImportGraph's declaration-needs model in agitate (no dependency; stay on `v4.33.1`), for performance, with upstreamable parts in `Agitate/ImportGraph`; exercise it through `percolate`, then bench and iterate. No syntax needs (syntax is an extra module use); no build-time recording (a limitation). | Thomas (direction, constraints); Claude (representations) | step A implemented |
+| Recreate ImportGraph's declaration-needs model in agitate (no dependency; stay on `v4.33.1`), for performance, with upstreamable parts in `Agitate/ImportGraph`; exercise it through `percolate`, then bench and iterate. No syntax needs (syntax is an extra module use); no build-time recording (a limitation). | Thomas (direction, constraints); Claude (representations) | steps A and B implemented |
 
 ## Results
 
@@ -800,6 +800,59 @@ ranges from the declaration range extension").
   * Phases: needs 0.6–0.7 s; graph assembly 0.06–0.07 s for 1 845 579 merged needs; percolation
     0.3 s; search trees 0.02 s; `why` 0.2 s; output 1.4 s.
   * Statuses identical to before.
+
+**Step B: stances, the import algebra, and imports after deletion (implemented).**
+* `Agitate.ImportGraph.Imports` recreates ImportGraph's algebra on `Bitset`: `ImportKind` (six kinds),
+  `Needs`/`Provides`, composition (`andThen?`, as ImportGraph's `NeedsKind.andThen`), `linearize`,
+  `Hierarchy`, and `ImportNeeds.reduce`. The reduction is ImportGraph's `reduceBy`: start from all
+  phased needs, keep each need not yet implied, and drop what its closure implies. A first version
+  (Claude) checked every chosen import against all others, which is quadratic.
+* `Agitate.ImportGraph.Stance` gives a declaration's visibility, exposure and phase, and
+  `Stance.importNeeds` turns one need into imports.
+* `percolate` exercises both. Its module records give each project module's imports once the items
+  of the `--delete` statuses are gone: per-module needs in parallel, then a reduction in
+  `ModuleIdx` order over the hierarchy of the new imports.
+* Code references are approximated by the value references of declarations that have code, until
+  step C reads the IR.
+
+**What the large test found (Claude).** `scripts/test-percolate-batteries.sh` applies the imports
+for `--delete none` to a copy of Batteries and builds it. Each failure exposed a need that terms
+do not show:
+1. *`import all`.* It serves unfolding non-exposed definitions (`Batteries.Control.Lemmas`), which
+   leaves no reference. Existing `import all`s are kept, as shake keeps them
+   (`Agitate/Shake.lean:533`).
+2. *Abstracted proofs.* A proof in an exposed definition is elaborated in its public value, then
+   abstracted into `foo._proof_N`, a theorem whose proof is private (`Batteries.Data.Fin.Basic`,
+   `Nat.mul_add_lt_mul_of_lt_of_lt`). An auxiliary declaration (no range of its own) counts as being
+   where its parent uses it: in the parent's type (public if the parent is), or in its value
+   (public if exposed). Its phase is the parent's if it has none itself.
+3. *Code references to constructors.* Lean's `checkMeta` (`Lean/Compiler/LCNF/Visibility.lean`)
+   checks every declaration code uses, constructors included: anything not marked meta is available
+   to code only in the phase it was imported in (`proof_wanted` placeholders,
+   `ProofWanted.mk`). So the phase a code reference needs depends on whether the used declaration
+   is marked meta, not on whether it has code.
+4. *Attributes registered by `initialize`.* `@[tactic_code_action]` was "Unknown" after
+   `public meta import Batteries.CodeAction.Attr` became a plain import. Its extension
+   (`Batteries.CodeAction.tacticCodeActionExt`) is registered by a runtime `initialize`, which runs
+   while elaborating only under a `meta import`. The applying module has entries in that
+   extension, so: entries in an extension registered by a regular `initialize` (`regularInitAttr`)
+   need its module, meta-imported if the initializer is runtime code. The toolchain's initializers
+   are in `lean` and always run. An earlier version without these two refinements added
+   `meta import Lean.Compiler.ModPkgExt` to every module, and `meta import
+   Batteries.Util.LibraryNote` where a plain import builds.
+
+Result: the suggested imports build, a second run suggests no change, and 139 of 192 modules get
+the same imports as `agitate --fix` (shake). The others differ in which module provides a need,
+public against private, or `meta`. In 17 cases `percolate` keeps a public import that shake does
+not, which is more conservative (likely rule 2). Mathlib (three seeds, two runs): 12.1 s cold and
+6.7 s warm. Imports after deletion take 1.2 s: original hierarchy 0.1 s, needs 0.8–0.9 s in
+parallel, reduction 0.27 s. The byte-wise `Bitset` does not matter here.
+
+**Limitations of the imports (open).**
+* `-- shake: keep` annotations are not read.
+* Options registered by `register_option` and used by `set_option` leave no entries, so their
+  modules can be dropped.
+* Non-module files get plain reachability and are untested.
 
 **Meta code (Thomas: read the module system quickstart, ignoring `@[inline]` and `@[specialize]`
 for now).** From "Quickstart: The Module System" (leanprover-community.github.io/extras), the rules
