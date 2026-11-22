@@ -3,7 +3,7 @@ Copyright (c) 2026 Thomas Murrills. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Thomas Murrills
 -/
--- Declarations that `Deps.Use`'s seeds need, or not.
+-- Declarations that `Fixture.Use`'s seeds need, or not.
 module
 
 @[expose] public section
@@ -23,7 +23,7 @@ def unusedDef : Nat := 42
 
 theorem unusedThm : unusedDef ≤ 42 := Nat.le_refl _
 
-/-- Its equation lemmas are realised in `Deps.Use`; they belong to this item. -/
+/-- Its equation lemmas are realised in `Fixture.Use`; they belong to this item. -/
 def double : Nat → Nat
   | 0 => 0
   | n + 1 => double n + 2

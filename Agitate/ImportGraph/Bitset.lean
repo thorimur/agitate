@@ -9,7 +9,7 @@ module
 
 public section
 
-namespace Percolate
+namespace Agitate.ImportGraph
 
 /--
 A set of small naturals (usually module indices), packed eight per byte.
@@ -115,4 +115,4 @@ instance : Repr Bitset where
 
 end Bitset
 
-end Percolate
+end Agitate.ImportGraph

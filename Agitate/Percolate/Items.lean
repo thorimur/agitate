@@ -5,7 +5,7 @@ Authors: Thomas Murrills
 -/
 
 /-
-Source items for `agitate-deps`: what deleting one span of a source file removes.
+Source items for `percolate`: what deleting one span of a source file removes.
 
 Lean records a declaration range (`declRangeExt`) for each declaration written in the source, and
 gives generated declarations the range of the syntax that made them: constructors, structure
@@ -30,7 +30,7 @@ public section
 
 open Lean
 
-namespace Agitate.Deps
+namespace Agitate.Percolate
 
 /-- One source item of a module. -/
 structure Item where
@@ -72,8 +72,10 @@ def rangedItems (ix : Index) (i : ModuleIdx) : RangedItems := Id.run do
   let ranged := ix.moduleEntries declRangeExt.toPersistentEnvExtension i
     |>.filter (consts.contains ·.1)
     |>.map (fun (n, r) => (n, r.range))
-    -- by start; for equal starts, the longer range first, so that it encloses the others
-    |>.qsort fun (_, a) (_, b) => posLt a.pos b.pos || (a.pos == b.pos && posLt b.endPos a.endPos)
+    -- by start; for equal starts, the longer range first, so that it encloses the others; equal
+    -- ranges by name, so that the output does not depend on the order of the olean's entries
+    |>.qsort fun (na, a) (nb, b) => posLt a.pos b.pos || (a.pos == b.pos &&
+      (posLt b.endPos a.endPos || (a.endPos == b.endPos && Name.lt na nb)))
   let mut items : Array Item := #[]
   let mut byName : Std.HashMap Name Nat := {}
   for (n, r) in ranged do
@@ -142,4 +144,4 @@ def moduleItems (reserved : Reserved.Ctx) (ranged : Array (Option RangedItems)) 
       constItem := constItem.insert c (i, k)
   return { items, constItem }
 
-end Agitate.Deps
+end Agitate.Percolate

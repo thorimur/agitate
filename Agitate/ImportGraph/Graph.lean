@@ -15,7 +15,7 @@ Ported from ImportGraph (`ImportGraph/Imports/RequiredModules.lean`,
 leanprover-community/import-graph at `16f02aa`): the worklist of
 `NameSet.transitivelyUsedConstants` (here `Graph.explore`) and the explicit-stack, memoised
 traversal of `Environment.transitivelyRequiredModules'` (here `Graph.flowBackward`). Changes:
-* generic in the vertex type and in the label type (any `Union`, e.g. `Percolate.Bitset`)
+* generic in the vertex type and in the label type (any `Union`, e.g. `Agitate.ImportGraph.Bitset`)
   instead of `Name` and `BitVec N`;
 * vertices are numbered densely, so the traversals use arrays instead of `NameMap`/`NameSet`, and
   discovery uses a `Std.HashMap` instead of `NameSet.min!`/`erase` per step;
@@ -25,7 +25,7 @@ traversal of `Environment.transitivelyRequiredModules'` (here `Graph.flowBackwar
   ImportGraph notes for its own traversal);
 * labels can also flow forwards, from users to what they use (`Graph.flowForward`).
 
-`Percolate.Environment` re-expresses ImportGraph's functions with these.
+`Agitate.ImportGraph.Environment` re-expresses ImportGraph's functions with these.
 -/
 module
 
@@ -33,7 +33,7 @@ public import Std.Data.HashMap.Basic
 
 public section
 
-namespace Percolate
+namespace Agitate.ImportGraph
 
 /-- A directed graph on the vertices `0, …, size - 1`, given by successor lists. -/
 structure Graph where
@@ -183,4 +183,4 @@ def flowBackward (g : Graph) (roots : Array Nat) (init : Nat → σ) : Array σ 
 
 end Graph
 
-end Percolate
+end Agitate.ImportGraph

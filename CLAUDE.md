@@ -6,12 +6,12 @@
   which Thomas prefers over reproducing upstream bugs. Each fix must be recorded in DESIGN.md and
   must keep an upstream-compatible flag.
 * After changes to shared code (`Agitate/{Args,Bitset,Header,Index,Preresolved,Refs,Reserved}.lean`,
-  `Percolate/Bitset.lean`), to
+  `Agitate/ImportGraph/Bitset.lean`), to
   `Agitate/NonModule.lean`, or to `modulate` (conversion code in `Agitate/Shake.lean`), run `scripts/test-fixture-nonmodule.sh` and
   `scripts/test-batteries-nonmodule.sh <mathlib4>/.lake/packages/batteries`.
-* After changes to `Percolate/` or `Agitate/Deps/`, run `scripts/test-percolate.sh
-  <mathlib4>/.lake/packages/importGraph` and `scripts/test-deps.sh`. Keep `Percolate` free of
-  `Agitate` imports, so that it can move upstream (Thomas).
+* After changes to `Agitate/ImportGraph/` or `Agitate/Percolate/`, run `scripts/test-importgraph.sh
+  <mathlib4>/.lake/packages/importGraph` and `scripts/test-percolate.sh`. `Agitate/ImportGraph/`
+  imports nothing else from agitate, so that it can move upstream (Thomas).
 * After changes to module resolution (`Agitate/Workspace.lean`, `Agitate/Args.lean`), also run
   `scripts/test-require.sh`.
 * After any change to the analysis, run `scripts/test-fixture.sh`, `scripts/compare-core.sh` and

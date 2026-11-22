@@ -5,12 +5,12 @@ Authors: Thomas Murrills
 -/
 
 /-
-`agitate-deps`: which source items of a project given declarations (seeds) need, for a tool that
+`percolate`: which source items of a project given declarations (seeds) need, for a tool that
 deletes the rest. Output is JSON Lines: a header, then one record per item (`Record`).
 -/
 module
 
-public import Agitate.Deps.Needs
+public import Agitate.Percolate.Needs
 public import Agitate.Workspace
 public import Lake.Config.Glob
 public import Lean.Data.Json.FromToJson.Basic
@@ -18,9 +18,9 @@ import Lake.Load.Toml  -- `Lake.Glob.ofString?`
 
 public section
 
-open Lean Percolate
+open Lean Agitate.ImportGraph
 
-namespace Agitate.Deps
+namespace Agitate.Percolate
 
 structure Args where
   seeds : Array Name := #[]
@@ -32,10 +32,10 @@ structure Args where
   /-- Root modules to load (default: the root package's default targets). -/
   mods : Array Name := #[]
 
-def usage : String := "agitate-deps: which source declarations of a project given declarations need
+def usage : String := "percolate: which source declarations of a project given declarations need
 
 USAGE:
-  agitate-deps [OPTIONS] (--seed <NAME> | --seeds <FILE>)... [MODULE...]
+  percolate [OPTIONS] (--seed <NAME> | --seeds <FILE>)... [MODULE...]
 
 Run in the workspace's root directory. Loads the MODULEs (default: the root package's default
 targets) and their imports through the Lake workspace. The project is the root package's modules;
@@ -84,7 +84,7 @@ deriving ToJson
 
 /-- The header line. -/
 structure Header where
-  format : String := "agitate-deps/1"
+  format : String := "percolate/1"
   /-- The seeds; records refer to them by index. -/
   seeds : Array Name
 deriving ToJson
@@ -183,7 +183,7 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
     out.flush
   return 0
 
-/-- The `main` of `agitate-deps`. -/
+/-- The `main` of `percolate`. -/
 def main (argv : List String) : IO UInt32 := do
   if argv.contains "--help" || argv.contains "-h" then
     IO.println usage
@@ -198,4 +198,4 @@ def main (argv : List String) : IO UInt32 := do
     return 2
   run args r
 
-end Agitate.Deps
+end Agitate.Percolate

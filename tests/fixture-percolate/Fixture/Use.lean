@@ -6,8 +6,8 @@ Authors: Thomas Murrills
 -- The seeds: `seed1` … `seed6` and `seedTree`.
 module
 
-public import Deps.Base
-public import Deps.Notation
+public import Fixture.Base
+public import Fixture.Notation
 
 @[expose] public section
 

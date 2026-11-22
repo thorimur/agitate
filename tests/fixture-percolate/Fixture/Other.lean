@@ -6,7 +6,7 @@ Authors: Thomas Murrills
 -- Not imported by the seeds' modules: everything here is unused.
 module
 
-public import Deps.Base
+public import Fixture.Base
 
 @[expose] public section
 

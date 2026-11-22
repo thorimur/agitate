@@ -5,7 +5,7 @@ Authors: Thomas Murrills
 -/
 
 /-
-Needs between source items, and which items given seed declarations need (`agitate-deps`).
+Needs between source items, and which items given seed declarations need (`percolate`).
 
 An item needs the items of everything its constants need, as recorded in the oleans:
 * the constants their types and values refer to, redirected as `agitate` resolves references
@@ -26,17 +26,17 @@ module are not recorded at all. Two approximations, each a level of the result (
 -/
 module
 
-public import Agitate.Deps.Items
+public import Agitate.Percolate.Items
 public import Agitate.Preresolved
 public import Lean.DefEqAttrib
-public import Percolate.Graph
-public import Percolate.Bitset
+public import Agitate.ImportGraph.Graph
+public import Agitate.ImportGraph.Bitset
 
 public section
 
-open Lean Percolate
+open Lean Agitate.ImportGraph
 
-namespace Agitate.Deps
+namespace Agitate.Percolate
 
 /-- How an item stands with respect to the seeds, by the weakest kind of need that reaches it. -/
 inductive Status where
@@ -244,4 +244,4 @@ def percolate (refs : RefCtx) (a : Analysis) (closure : Array ModuleIdx)
     IO.eprintln s!"[profile] percolation (three levels): {t3 - t2} ms"
   return res
 
-end Agitate.Deps
+end Agitate.Percolate

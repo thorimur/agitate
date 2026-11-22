@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Thomas Murrills. All rights reserved.
 # Released under Apache 2.0 license as described in the file LICENSE.
-"""Reference consumer of `agitate-deps` output, for the tests: deletes the declaration ranges of the
+"""Reference consumer of `percolate` output, for the tests: deletes the declaration ranges of the
 items with the given statuses from their source files.
 
-Usage: delete-items.py <agitate-deps.jsonl> <status>...
+Usage: delete-items.py <percolate.jsonl> <status>...
 
 Ranges are `Lean.Position`s: lines from 1, columns from 0 in codepoints, `end` exclusive. Items
 without a range are left alone, and so are `attribute` commands on deleted declarations

@@ -5,5 +5,5 @@ Authors: Thomas Murrills
 -/
 module
 
-public import Deps.Use
-public import Deps.Other
+public import Fixture.Use
+public import Fixture.Other

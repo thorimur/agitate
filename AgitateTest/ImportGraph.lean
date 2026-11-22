@@ -4,11 +4,11 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Thomas Murrills
 -/
 
-/- Tests of `Percolate`; building this file runs them. -/
-import Percolate
+/- Tests of `Agitate.ImportGraph`; building this file runs them. -/
+import Agitate.ImportGraph
 import Lean.Elab.Command
 
-open Lean Percolate
+open Lean Agitate.ImportGraph
 
 /-- `0 → 1 ⇄ 2 → 3`; `4 → 0` is not reachable from `0`. -/
 def g : Graph := ⟨#[#[1], #[2], #[1, 3], #[], #[0]]⟩
@@ -46,7 +46,7 @@ run_cmd do
   let used := transitivelyUsedConstants env #[``Nat.add_comm]
   unless used[0]? == some ``Nat.add_comm && used.contains ``Nat.add do
     throwError "transitivelyUsedConstants: {used}"
-  let req := (transitivelyRequiredModules env #[`Percolate.Graph])[`Percolate.Graph]!
-  unless req.contains `Init.Prelude && req.contains `Percolate.Graph
-      && !req.contains `Percolate.Environment do
+  let req := (transitivelyRequiredModules env #[`Agitate.ImportGraph.Graph])[`Agitate.ImportGraph.Graph]!
+  unless req.contains `Init.Prelude && req.contains `Agitate.ImportGraph.Graph
+      && !req.contains `Agitate.ImportGraph.Environment do
     throwError "transitivelyRequiredModules: {req}"

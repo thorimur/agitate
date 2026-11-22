@@ -5,16 +5,17 @@ Authors: Thomas Murrills
 -/
 
 /-
-`Agitate.Bitset` is `Percolate.Bitset`, which moved to the upstreamable `Percolate` library.
+`Agitate.Bitset` is `Agitate.ImportGraph.Bitset`, which moved to the upstreamable
+`Agitate.ImportGraph`.
 -/
 module
 
-public import Percolate.Bitset
+public import Agitate.ImportGraph.Bitset
 
 public section
 
 namespace Agitate
 
-export Percolate (Bitset)
+export Agitate.ImportGraph (Bitset)
 
 end Agitate

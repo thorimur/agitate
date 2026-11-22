@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Thomas Murrills
 -/
 
-import Agitate.Deps.Main
+import Agitate.Percolate.Main
 
 def main (argv : List String) : IO UInt32 :=
-  Agitate.Deps.main argv
+  Agitate.Percolate.main argv

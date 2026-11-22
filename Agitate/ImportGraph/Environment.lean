@@ -6,12 +6,12 @@ Authors: Kim Morrison, Thomas Murrills
 -/
 
 /-
-# ImportGraph's constant dependencies on `Percolate.Graph`
+# ImportGraph's constant dependencies on `Agitate.ImportGraph.Graph`
 
 Ported from ImportGraph (`ImportGraph/Imports/RequiredModules.lean`,
 leanprover-community/import-graph at `16f02aa`): `NameSet.transitivelyUsedConstants` and
 `Environment.transitivelyRequiredModules'`, with the same results. Changes: the traversals are
-`Graph.explore` and `Graph.flowBackward`, module sets are `Percolate.Bitset`s instead of `BitVec N`,
+`Graph.explore` and `Graph.flowBackward`, module sets are `Agitate.ImportGraph.Bitset`s instead of `BitVec N`,
 and results are arrays (`transitivelyUsedConstants` in discovery order, not sorted). Constants that
 are not in the environment have no successors here; ImportGraph's `getConstInfo` throws.
 -/
@@ -19,14 +19,14 @@ module
 
 public import Lean.Environment
 public import Lean.Util.FoldConsts
-public import Percolate.Bitset
-public import Percolate.Graph
+public import Agitate.ImportGraph.Bitset
+public import Agitate.ImportGraph.Graph
 
 public section
 
 open Lean
 
-namespace Percolate
+namespace Agitate.ImportGraph
 
 /-- The constants `ci` uses: those of `ConstantInfo.getUsedConstantsAsSet`, as ImportGraph uses. -/
 def usedConstants (ci : ConstantInfo) : Array Name :=
@@ -73,4 +73,4 @@ def transitivelyRequiredModules (env : Environment) (modules : Array Name) :
     out := out.insert m (r.toArray.map modName)
   return out
 
-end Percolate
+end Agitate.ImportGraph

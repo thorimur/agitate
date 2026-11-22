@@ -105,13 +105,13 @@ fail where a module needs more than imports:
 The options above for import analysis also apply, except `--keep-public`, `--add-public`,
 `--upstream-indirect` and `--compat`.
 
-## Declaration needs: `agitate-deps`
+## Declaration needs: `percolate`
 
 ```
-/path/to/agitate/.lake/build/bin/agitate-deps [OPTIONS] (--seed <NAME> | --seeds <FILE>)... [MODULE...]
+/path/to/agitate/.lake/build/bin/percolate [OPTIONS] (--seed <NAME> | --seeds <FILE>)... [MODULE...]
 ```
 
-For some seed declarations, `agitate-deps` finds which source declarations of the project
+For some seed declarations, `percolate` finds which source declarations of the project
 they need, and which they do not, for a tool that deletes the rest. The project is the root
 package's modules. Its other options are `--scope <GLOB>` (report only the matching modules; Lake
 globs, repeatable), `-o <FILE>` and `--profile`.
@@ -136,15 +136,15 @@ give the weaker statuses:
 * `moduleUse`: a seed may need it only because its module is used;
 * `unused`: no seed needs it.
 
-Output is JSON Lines. The first line is a header, `{"format":"agitate-deps/1","seeds":[...]}`; then
+Output is JSON Lines. The first line is a header, `{"format":"percolate/1","seeds":[...]}`; then
 there is one line per item of the project's loaded modules, in module order and then source order:
 
 ```
-{"module":"Deps.Base","file":"/…/Deps/Base.lean",
+{"module":"Fixture.Base","file":"/…/Fixture/Base.lean",
  "range":{"start":{"line":11,"column":0},"end":{"line":15,"column":13}},
  "names":["Point","Point.mk","Point.x","Point.y","instReprPoint.repr","instReprPoint"],
  "status":"needed","usedBy":[0,6],"candidateFor":[1,2,3,4,5],"moduleUseFor":[],
- "attributeCmds":[{"module":"Deps.Notation","kind":"simp","decl":"Point.sum"}]}
+ "attributeCmds":[{"module":"Fixture.Notation","kind":"simp","decl":"Point.sum"}]}
 ```
 
 * **Range:** lines count from 1 and columns from 0 in codepoints (`Lean.Position`), with `end`
@@ -157,23 +157,23 @@ there is one line per item of the project's loaded modules, in module order and 
 Commands that declare nothing (`open`, `variable`, `example`, …) leave no trace in the oleans and
 are the deletion tool's business. `scripts/delete-items.py` is a minimal reference consumer.
 
-## The `Percolate` library
+## The upstreamable graph library: `Agitate.ImportGraph`
 
-`Percolate/` is a library that depends only on Lean, meant to move upstream (to ImportGraph) as it
-is:
+`Agitate/ImportGraph/` depends only on Lean, so that it can move upstream to ImportGraph by
+dropping the `Agitate.` prefix from its module and namespace names. It holds:
 * dense dependency graphs, built with breadth-first discovery (`Graph.explore`);
 * strongly connected components, by an iterative Tarjan with no recursion (`Graph.components`);
 * label propagation along edges or against them (`Graph.flowForward`, `Graph.flowBackward`);
-* `Percolate.Bitset`;
+* `Agitate.ImportGraph.Bitset`;
 * ImportGraph's `transitivelyUsedConstants` and `transitivelyRequiredModules'` re-expressed with
-  these (`Percolate.Environment`).
+  these (`Agitate.ImportGraph.Environment`).
 
-`agitate-deps` uses it.
+`percolate` uses it.
 
 ## Layout
 
-* `Percolate/` (with `Percolate.lean`): the upstreamable graph library above; `PercolateTest.lean`
-  holds its unit tests.
+* `Agitate/ImportGraph/` (with `Agitate/ImportGraph.lean`): the upstreamable graph library above;
+  `AgitateTest/ImportGraph.lean` holds its unit tests.
 * Shared by both tools:
   * `Agitate/Args.lean`: options and the CLI driver.
   * `Agitate/Index.lean`: reads the modules' oleans and answers the queries shake needs.
@@ -181,20 +181,21 @@ is:
   * `Agitate/Refs.lean`: resolving referenced constants to modules.
   * `Agitate/Preresolved.lean`: needs from names preresolved by syntax quotations, a workaround
     for uses Lean does not record.
-  * `Agitate/Bitset.lean` (an alias of `Percolate.Bitset`), `Agitate/Header.lean`: module sets,
+  * `Agitate/Bitset.lean` (an alias of `Agitate.ImportGraph.Bitset`), `Agitate/Header.lean`: module sets,
     and source headers and `--fix`.
 * `Agitate/Shake.lean` (with `Main.lean`): `agitate`'s analysis, adapted from upstream
   `Lake/CLI/Shake.lean`. Changes are marked `agitate`.
 * `Agitate/NonModule.lean` (with `NonModuleMain.lean`): `agitate-nonmodule`'s single-kind analysis.
 * `ModulateMain.lean`: `modulate`, which runs `agitate`'s analysis on non-module oleans
   (`State.converting`).
-* `Agitate/Deps/` (with `DepsMain.lean`): `agitate-deps`. `Items.lean` groups constants into source
+* `Agitate/Percolate/` (with `PercolateMain.lean`): `percolate`. `Items.lean` groups constants into source
   items, `Needs.lean` computes needs and percolates the seeds, and `Main.lean` holds the CLI and
   output.
 * `AgitateCheck.lean`: `agitate-check`, the differential checker for the index (below).
-* `tests/fixture`, `tests/fixture-nonmodule`, `tests/fixture-deps`: small workspaces whose modules each exercise one
-  behaviour (comments say which). `tests/fixture-nonmodule.expected` and `tests/fixture-deps.expected` hold
-  golden outputs. `tests/percolate/` holds the comparison with ImportGraph.
+* `tests/fixture`, `tests/fixture-nonmodule`, `tests/fixture-percolate`: small workspaces whose
+  modules each exercise one behaviour (comments say which). `tests/fixture-nonmodule.expected` and
+  `tests/fixture-percolate.expected` hold golden outputs. `tests/importgraph/` holds the comparison
+  with ImportGraph.
 * `scripts/`: the checks below, and `indirect-kinds.sh` (measures how much each indirect-use kind
   changes the suggestions) with its helper `diff-suggestions.py`.
 
@@ -224,14 +225,14 @@ is:
   `Main` executable root, and checks that agitate analyses the project's `Main`, both run directly
   and under `lake env`. Before modules were resolved through the workspace, agitate's own `Main`
   shadowed it.
-* `scripts/test-deps.sh` tests `agitate-deps` on `tests/fixture-deps`:
+* `scripts/test-percolate.sh` tests `percolate` on `tests/fixture-percolate`:
   * golden outputs (`UPDATE=1` rewrites them);
   * deleting the `unused` items, then also the `moduleUse` ones (`scripts/delete-items.py`), must
     leave a fixture that builds, and a second run must report neither status;
   * deleting the `candidate` items as well must not build.
-* `scripts/test-percolate.sh [<importGraph-dir>]` builds `PercolateTest` (its `#guard`s). Given an
+* `scripts/test-importgraph.sh [<importGraph-dir>]` builds `AgitateTest.ImportGraph` (its `#guard`s). Given an
   ImportGraph build with this toolchain (e.g. `<mathlib4>/.lake/packages/importGraph`), it also
-  checks that `Percolate.Environment` agrees with ImportGraph's own functions.
+  checks that `Agitate.ImportGraph.Environment` agrees with ImportGraph's own functions.
 * `.lake/build/bin/agitate-check <MODULE>...` (run in the workspace) compares every index query with core's answer
   on an environment loaded the way `lake shake` loads it, for every imported constant.
 
@@ -239,5 +240,5 @@ is:
 
 Apache 2.0; see `LICENSE`. Parts are copied or ported from Lean 4 (also Apache 2.0): the analysis
 from Lake's `shake` (`Lake/CLI/Shake.lean`), the olean index and reserved-name predicates from
-Lean core. `Percolate`'s traversals are ported from ImportGraph (Apache 2.0). Those files keep the
+Lean core. `Agitate.ImportGraph`'s traversals are ported from ImportGraph (Apache 2.0). Those files keep the
 original copyright notices and describe their changes.
