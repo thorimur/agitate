@@ -89,6 +89,8 @@ structure Header where
   seeds : Array Name
 deriving ToJson
 
+deriving instance ToJson for Why
+
 /-- One source item. -/
 structure Record where
   module : Name
@@ -106,6 +108,8 @@ structure Record where
   moduleUseFor : Array Nat
   /-- `attribute` commands on the item's declarations in other modules: to delete with it. -/
   attributeCmds : Array AttrCmd
+  /-- Why the item has its status (absent if `unused`). -/
+  why? : Option Why
 deriving ToJson
 
 /-- Import closure of `roots`, ascending. -/
@@ -159,6 +163,7 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
   let out ← match args.output with
     | some p => do pure (IO.FS.Stream.ofHandle (← IO.FS.Handle.mk p .write))
     | none => IO.getStdout
+  let whys ← timed "why (parallel)" <| IO.lazyPure fun _ => res.whys refs a seedIds
   timed "output" do
     out.putStrLn (toJson ({ seeds := seedNames } : Header)).compress
     for i in 0...ix.size do
@@ -175,10 +180,11 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
           range := item.range.map fun r => { start := r.pos, «end» := r.endPos }
           names := item.names.map privateToUserName
           status := (res.status v).toString
-          usedBy := res.needed[v]!.toArray
-          candidateFor := (res.candidate[v]! \ res.needed[v]!).toArray
-          moduleUseFor := (res.moduleUse[v]! \ res.candidate[v]!).toArray
-          attributeCmds }
+          usedBy := (res.reachAt 0 v).toArray
+          candidateFor := (res.reachAt 1 v \ res.reachAt 0 v).toArray
+          moduleUseFor := (res.reachAt 2 v \ res.reachAt 1 v).toArray
+          attributeCmds
+          why? := whys[v]! }
         out.putStrLn (toJson rec_).compress
     out.flush
   return 0

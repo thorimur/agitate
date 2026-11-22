@@ -144,7 +144,8 @@ there is one line per item of the project's loaded modules, in module order and 
  "range":{"start":{"line":11,"column":0},"end":{"line":15,"column":13}},
  "names":["Point","Point.mk","Point.x","Point.y","instReprPoint.repr","instReprPoint"],
  "status":"needed","usedBy":[0,6],"candidateFor":[1,2,3,4,5],"moduleUseFor":[],
- "attributeCmds":[{"module":"Fixture.Notation","kind":"simp","decl":"Point.sum"}]}
+ "attributeCmds":[{"module":"Fixture.Notation","kind":"simp","decl":"Point.sum"}],
+ "why":{"user":"seed6","userModule":"Fixture.Use","uses":"Point.mk","kinds":["type"]}}
 ```
 
 * **Range:** lines count from 1 and columns from 0 in codepoints (`Lean.Position`), with `end`
@@ -153,6 +154,13 @@ there is one line per item of the project's loaded modules, in module order and 
   first reaches the item.
 * **`attributeCmds`:** the `attribute [kind] decl` commands on the item's declarations in other
   modules. A deletion tool must delete these too. Their ranges are not recorded.
+* **`why`** (absent for `unused` items): the last step of a shortest path from a seed, at the
+  item's status. It is `{"seed": i}` for a seed. For a recorded need, it names the declaration that
+  needs the item (`user`, in `userModule`), the item's declaration it refers to (`uses`), and the
+  kinds of need: `type`, `value`, `implementedBy`, `preresolved`, `structural` (an inductive's
+  constructors, a recursor's mutual block) and `regenerated` (through an equation lemma or similar).
+  For the other statuses, it names the rule (`metaprogram`, `rflTheorem` or `moduleUse`), an item of
+  the using module, and whether the use is inside the item's own module (`sameModule`).
 
 Commands that declare nothing (`open`, `variable`, `example`, …) leave no trace in the oleans and
 are the deletion tool's business. `scripts/delete-items.py` is a minimal reference consumer.
@@ -161,9 +169,13 @@ are the deletion tool's business. `scripts/delete-items.py` is a minimal referen
 
 `Agitate/ImportGraph/` depends only on Lean, so that it can move upstream to ImportGraph by
 dropping the `Agitate.` prefix from its module and namespace names. It holds:
-* strongly connected components, by an iterative Tarjan with no recursion (`Graph.components`);
-* label propagation along the edges, over the components (`Graph.flowForward`);
-* `Agitate.ImportGraph.Bitset`, the `ByteArray` bitset that agitate uses throughout.
+* `Graph`: graphs in compressed sparse row form (all edges in one array), built from edge lists
+  by a counting sort, optionally with a label byte per edge (`LGraph`, merged by `dedup`). It also
+  holds strongly connected components by an iterative Tarjan (`components`), label propagation over
+  them (`flowForward`) and breadth-first search trees (`bfs`).
+* `NeedKinds`: kinds of need between declarations, as bit flags.
+* `SourceItems`: grouping a module's declarations into maximal declaration ranges (`groupRanges`).
+* `Bitset`: the `ByteArray` bitset that agitate uses throughout.
 
 `percolate` uses it.
 
@@ -178,6 +190,8 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   * `Agitate/Refs.lean`: resolving referenced constants to modules.
   * `Agitate/Preresolved.lean`: needs from names preresolved by syntax quotations, a workaround
     for uses Lean does not record.
+  * `Agitate/DeclNeeds.lean`: each constant's references with their kinds of need, and how a
+    reference resolves to a declaration.
   * `Agitate/Bitset.lean` (an alias of `Agitate.ImportGraph.Bitset`), `Agitate/Header.lean`: module sets,
     and source headers and `--fix`.
 * `Agitate/Shake.lean` (with `Main.lean`): `agitate`'s analysis, adapted from upstream
@@ -185,9 +199,9 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
 * `Agitate/NonModule.lean` (with `NonModuleMain.lean`): `agitate-nonmodule`'s single-kind analysis.
 * `ModulateMain.lean`: `modulate`, which runs `agitate`'s analysis on non-module oleans
   (`State.converting`).
-* `Agitate/Percolate/` (with `PercolateMain.lean`): `percolate`. `Items.lean` groups constants into source
-  items, `Needs.lean` computes needs and percolates the seeds, and `Main.lean` holds the CLI and
-  output.
+* `Agitate/Percolate/` (with `PercolateMain.lean`): `percolate`. `Items.lean` assigns constants to
+  source items, `Needs.lean` builds the graph of needs between items, percolates the seeds and
+  explains the statuses, and `Main.lean` holds the CLI and output.
 * `AgitateCheck.lean`: `agitate-check`, the differential checker for the index (below).
 * `tests/fixture`, `tests/fixture-nonmodule`, `tests/fixture-percolate`: small workspaces whose
   modules each exercise one behaviour (comments say which). `tests/fixture-nonmodule.expected` and

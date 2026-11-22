@@ -43,6 +43,7 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Remove the port of ImportGraph's `RequiredModules` (it was the wrong code: Thomas meant `ImportGraph/Shake/` and `WorkspaceModel/` at upstream `HEAD`). Revisit how agitate and `percolate` relate to those. | Thomas | removed; relation open |
 | Uses that Lean records only per module, or not at all, give two weaker statuses (`candidate`, `moduleUse`) rather than one coarse flag. | Claude | implemented; open |
 | JSON Lines, with records written one at a time, rather than one `Json` value. | Claude (agreed by Thomas) | implemented |
+| Recreate ImportGraph's declaration-needs model in agitate (no dependency; stay on `v4.33.1`), for performance, with upstreamable parts in `Agitate/ImportGraph`; exercise it through `percolate`, then bench and iterate. No syntax needs (syntax is an extra module use); no build-time recording (a limitation). | Thomas (direction, constraints); Claude (representations) | step A implemented |
 
 ## Results
 
@@ -719,13 +720,11 @@ page cache):
 
 **Scope (Thomas, "nicely factored so that upstreamable bits are upstreamable, and adapted bits to
 our purposes are not baked into our project").** `Agitate/ImportGraph/` imports only Lean, never
-the rest of agitate. It holds what `percolate` needs and might be useful upstream:
-`Graph.components`, an iterative Tarjan (item graphs are cyclic because of mutual inductives, and
-core's `Lean.SCC.scc` recurses, which overflows on Mathlib-sized graphs); `Graph.flowForward`,
-which propagates labels over the components; and `Bitset`, which moved from `Agitate`
-(`Agitate.Bitset` is now an alias). Everything about items, `Index` or the CLI is in
-`Agitate/Percolate`. How this relates to upstream ImportGraph is open: see "ImportGraph at `HEAD`"
-below.
+the rest of agitate. It holds the parts of the declaration-needs model below that are independent
+of how needs are read: `Graph` (graphs in compressed sparse row form, Tarjan components, label
+propagation, breadth-first search trees), `NeedKinds`, `SourceItems` and `Bitset` (moved from
+`Agitate`; `Agitate.Bitset` is an alias). Producers that read the olean index (`Agitate/DeclNeeds.lean`)
+and `percolate` itself stay in agitate.
 
 **Layout and names.** The first version was a separate library, `Percolate`, after Thomas's "Let's
 call it Percolate", which Claude applied to the library. Then Thomas: "We should structure this as
@@ -758,6 +757,63 @@ chain without stack overflow. On a 1M-vertex chain in the interpreter, component
 flow scale linearly (2.5 s and 4.7 s at 1M). *Pitfall found while testing:* labelling every vertex
 `v` with `{v}` makes bitsets of `v/8` bytes, which is quadratic in space. Seeds are few, so
 `percolate` does not hit this.
+
+## Declaration needs: recreating ImportGraph's model
+
+**Thomas's constraints.**
+* Do not depend on ImportGraph: "we do need to stay on 4.33.1 for now". Copy its types under
+  `Agitate/ImportGraph/Copied` if sharing them, or recreate them from scratch for performance.
+* "port things in the most performant way we can", in clearly marked upstreamable parts.
+* Then use `percolate` to exercise the abstractions, and "make decisions there, then bench and
+  iterate".
+* Build the "most conceptually elegant approach" rather than only what `percolate` uses so far.
+
+Claude recreates rather than copies (nothing is under `Copied`), choosing representations for speed:
+* flags in a byte instead of `DeclDeclNeedsKind` sets (`Std.TreeSet`);
+* edge lists sorted into compressed sparse rows instead of nested `NameMap`s;
+* dense item ids.
+
+**Syntax and per-command needs (Thomas).** "the syntax needs might not be necessary for this
+purpose. Syntax is recorded as an extra mod use." So nothing like ImportGraph's `calcSyntaxNeeds`
+is recreated. Attributing extra module uses to commands or declarations would need data recorded
+while elaborating. Thomas: "You would need to override the command elaborator for declarations, I
+believe, and that would only help sometimes. Linters and such can't persist anything." *Limitation*
+(Thomas: "Something that doesn't require a source build opt-in is better for now, but let's note
+this as a limitation"): without such an opt-in, extra module uses stay per module, hence the
+`candidate` and `moduleUse` approximations. Declaration ranges (`declRangeExt`) stand in for
+command ranges where ranges are needed (Thomas: "We might be able to get at least (most of the)
+ranges from the declaration range extension").
+
+**Step A: typed needs and `why` (implemented).**
+* `NeedKinds` records where in the user a reference sits (`type`, `value`) and how it arises
+  (`implementedBy`, `preresolved`, `structural`, `regenerated`). Code needs are next (step C).
+* `Agitate.constRefs` and `Agitate.resolveDecl` produce each constant's needs from the index.
+* `percolate` builds a labelled graph between items: each constant's needs are merged per needed
+  item by sorting `item * 256 + kinds` (no tuples, no hash map), and the whole graph by
+  `LGraph.dedup`, which is linear (a marker per vertex).
+* A breadth-first tree per level gives each item its `why`. Recorded needs are explained at the
+  declaration level by resolving the predecessor item's constants again, batched per module, in
+  parallel. The first, unbatched version searched for each item's module and rescanned its
+  constants per item, and took the output phase on Mathlib from 1.3 s to 10 s.
+* Mathlib (seeds as in "Declaration needs: `percolate`", two runs): wall time 10.5 s (cold)
+  and 5.0 s (warm), against 8.9 and 4.5 before.
+  * Phases: needs 0.6–0.7 s; graph assembly 0.06–0.07 s for 1 845 579 merged needs; percolation
+    0.3 s; search trees 0.02 s; `why` 0.2 s; output 1.4 s.
+  * Statuses identical to before.
+
+**Meta code (Thomas: read the module system quickstart, ignoring `@[inline]` and `@[specialize]`
+for now).** From "Quickstart: The Module System" (leanprover-community.github.io/extras), the rules
+step C must model:
+* Code has a phase. Meta code may reference only meta code, runtime code only runtime code, and
+  types and proofs are ignored.
+* `meta import` lifts the imported runtime code to the meta phase, and nothing lowers meta code.
+  Intrinsically meta code arrives as meta under any import.
+* Meta code is presentable (usable downstream) or not, inferred from what it references.
+  * Presentable code may reference only presentable code, and a public meta def must be
+    presentable.
+  * A private meta def may serve a public one only if its own references are presentable.
+  * `public (meta) import` provides presentable code as presentable, a plain `(meta) import` as
+    unpresentable.
 
 ## ImportGraph at `HEAD`
 

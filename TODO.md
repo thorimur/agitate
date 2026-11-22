@@ -35,7 +35,6 @@
 * Later: per-module needs cache keyed by olean hash (incremental runs). `resolveRef` is a pure
   function of the referenced name and the index, which makes this straightforward apart from the
   `transDeps` filter on indirect uses.
-* `percolate`: a `why` per needed item (one predecessor towards a seed, like `--explain`).
 * `percolate`: the remaining unranged items on Mathlib (1 613, mostly `_auto` and realised
   equation lemmas whose base has no range; DESIGN.md, "Declaration needs").
 * `percolate`: ranges of `attribute [kind] decl` commands are not in the oleans; the deletion

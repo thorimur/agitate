@@ -27,7 +27,7 @@ module are not recorded at all. Two approximations, each a level of the result (
 module
 
 public import Agitate.Percolate.Items
-public import Agitate.Preresolved
+public import Agitate.DeclNeeds
 public import Lean.DefEqAttrib
 public import Agitate.ImportGraph.Graph
 public import Agitate.ImportGraph.Bitset
@@ -65,6 +65,8 @@ structure Analysis where
   offset : Array Nat
   /-- The number of items. -/
   numItems : Nat
+  /-- The module of each item. -/
+  modOfItem : Array ModuleIdx
 
 namespace Analysis
 
@@ -89,22 +91,22 @@ def analyse (refs : RefCtx) (isProject : Array Bool) : IO Analysis := do
   for m in items do
     offset := offset.push n
     n := n + m.items.size
-  return { isProject, items, offset, numItems := n }
+  let mut modOfItem : Array ModuleIdx := .emptyWithCapacity n
+  for (m, i) in items.zipIdx do
+    for _ in m.items do modOfItem := modOfItem.push i
+  return { isProject, items, offset, numItems := n, modOfItem }
 
-/-- The item that a reference to `ref` from module `i` resolves to (`none` outside the project). -/
-private def resolveItem (refs : RefCtx) (a : Analysis) (order : Thunk (Array Index.LoadedModule))
-    (i : ModuleIdx) (ref : Name) : Option Nat := do
-  let r ← resolveRef refs ref
-  let (n, j) := match r.forModule refs.ix order i with
-    | some r' => (r'.name, r'.mod)
-    | none => (r.name, i)  -- `i` declares its own copy
+/-- The item that declaration `n` of module `j` belongs to (`none` outside the project). -/
+def Analysis.itemOf? (a : Analysis) (n : Name) (j : ModuleIdx) : Option Nat := do
   guard a.isProject[j]!
   return a.globalId (← a.items[j]!.constItem[n]?)
 
 /-- What one module contributes to the graph. -/
 structure ModuleNeeds where
-  /-- Recorded needs: `(item, needed items)`, one entry per constant. -/
-  edges : Array (Nat × Array Nat) := #[]
+  /-- Recorded needs between items, as parallel arrays: `srcs[k] → dsts[k]` with kinds `kinds[k]`. -/
+  srcs : Array Nat := #[]
+  dsts : Array Nat := #[]
+  kinds : ByteArray := .empty
   /-- The module's items containing a metaprogram (see `isMetaprogram`). -/
   metaItems : Array Nat := #[]
   /-- The module's items containing an rfl theorem (`@[backward_defeq]`). -/
@@ -119,12 +121,16 @@ keeping declarations.
 def isMetaprogram (ix : Index) (c : Name) : Bool :=
   isDeclMeta' ix c || (ix.find? c).any fun ci => ci.type.getUsedConstants.any (`Lean).isPrefixOf
 
-/-- The needs of module `i`'s constants. References are resolved once per distinct name. -/
+/--
+The needs of module `i`'s constants between items. References are resolved once per distinct name;
+each constant's needs are merged per needed item (kinds or-ed) by sorting `item * 256 + kinds`.
+-/
 def moduleNeeds (refs : RefCtx) (a : Analysis) (i : ModuleIdx) : ModuleNeeds := Id.run do
   let ix := refs.ix
   let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
   let rfl : Std.HashSet Name := ix.moduleEntries backwardDefeqAttr.ext i |>.foldl (·.insert ·) {}
-  let mut cache : Std.HashMap Name (Option Nat) := {}
+  -- per referenced name: the item it resolves to, with `regenerated` if redirected
+  let mut cache : Std.HashMap Name (Option (Nat × Bool)) := {}
   let mut out : ModuleNeeds := {}
   let mut metaItems : Std.HashSet Nat := {}
   let mut rflItems : Std.HashSet Nat := {}
@@ -134,114 +140,239 @@ def moduleNeeds (refs : RefCtx) (a : Analysis) (i : ModuleIdx) : ModuleNeeds := 
     if j == i then
       if !metaItems.contains src && isMetaprogram ix ci.name then metaItems := metaItems.insert src
       if !rflItems.contains src && rfl.contains ci.name then rflItems := rflItems.insert src
-    let mut names := ci.type.getUsedConstants
-    if let some v := ci.value? (allowOpaque := true) then
-      names := names ++ v.getUsedConstants
-      -- names preresolved by quotations (only scanned if the value builds `Syntax.Preresolved`)
-      if refs.preresolvedNeeds && names.contains ``Syntax.Preresolved.decl then
-        names := names ++ Preresolved.declNames v
-    -- as `ConstantInfo.getUsedConstantsAsSet`: an inductive needs its constructors, a recursor
-    -- its mutual block
-    match ci with
-    | .inductInfo val => names := names ++ val.ctors
-    | .recInfo val => names := names ++ val.all
-    | _ => pure ()
-    if refs.implementedByNeeds then
-      if let some g := ix.implementedBy? ci.name then
-        names := names.push g
-    let mut dsts := #[]
-    for n in names do
+    let (names, kinds) := constRefs refs ci
+    let mut codes : Array Nat := #[]
+    for h : e in 0...names.size do
+      let n := names[e]
       let d := match cache[n]? with
         | some d => d
-        | none => resolveItem refs a order i n
+        | none => (resolveDecl refs order i n).bind fun (m, jm, redirected) =>
+            (a.itemOf? m jm).map (·, redirected)
       cache := cache.insert n d
-      if let some d := d then
+      if let some (d, redirected) := d then
         if d != src then
-          dsts := dsts.push d
-    -- deduplicate (constants of one item often need the same items)
-    dsts := dsts.qsort (· < ·)
-    dsts := dsts.zipIdx.filterMap fun (d, k) => if k > 0 && dsts[k - 1]! == d then none else some d
-    out := { out with edges := out.edges.push (src, dsts) }
+          let kind := kinds.get! e ||| (if redirected then NeedKinds.regenerated.bits else 0)
+          codes := codes.push (d * 256 + kind.toNat)
+    -- merge the needs of this constant per needed item
+    codes := codes.qsort (· < ·)
+    let mut last := none
+    for c in codes do
+      let (d, kind) := (c / 256, (c % 256).toUInt8)
+      if last == some d then
+        let p := out.kinds.size - 1
+        out := { out with kinds := out.kinds.set! p (out.kinds.get! p ||| kind) }
+      else
+        out := { out with srcs := out.srcs.push src, dsts := out.dsts.push d,
+                          kinds := out.kinds.push kind }
+        last := some d
   return { out with metaItems := metaItems.toArray, rflItems := rflItems.toArray }
 
-/-- The result for each item: the seeds (indices) reaching it at each level of `Status`. -/
-structure Result where
-  needed : Array Bitset
-  /-- Includes `needed`. -/
-  candidate : Array Bitset
-  /-- Includes `candidate`. -/
-  moduleUse : Array Bitset
+/-- An edge list under construction, as parallel arrays. -/
+structure EdgeList where
+  srcs : Array Nat := #[]
+  dsts : Array Nat := #[]
+  kinds : ByteArray := .empty
 
-def Result.status (r : Result) (v : Nat) : Status :=
-  if !r.needed[v]!.isEmpty then .needed
-  else if !r.candidate[v]!.isEmpty then .candidate
-  else if !r.moduleUse[v]!.isEmpty then .moduleUse
+/-- Adds the edge `s → d` without kinds (an approximation's edge). -/
+@[inline] def EdgeList.add (es : EdgeList) (s d : Nat) : EdgeList :=
+  { srcs := es.srcs.push s, dsts := es.dsts.push d, kinds := es.kinds.push 0 }
+
+/--
+Everything `percolate` computes: per level, the graph over items and pseudo-vertices, the seeds
+reaching each item (`reach`), and a breadth-first tree from the seeds (`tree`, for `why`).
+
+Pseudo-vertices: five per module `m` of the closure, at `numItems + 5 * p + r` for `m`'s position
+`p` in `closure` and role `r`: `0` what `m`'s unrecorded uses can name, `1` `m`'s metaprograms,
+`2` `m`'s rfl theorems, `3` every module `m` records an extra use of, `4` every item of `m`.
+-/
+structure Percolation where
+  numItems : Nat
+  closure : Array ModuleIdx
+  graphs : Array LGraph
+  reach : Array (Array Bitset)
+  trees : Array Graph.BfsTree
+
+namespace Percolation
+
+/-- The seeds that reach item `v` at level index `l` (levels include the ones before them). -/
+def reachAt (p : Percolation) (l : Nat) (v : Nat) : Bitset := p.reach[l]![v]!
+
+def status (p : Percolation) (v : Nat) : Status :=
+  if !(p.reachAt 0 v).isEmpty then .needed
+  else if !(p.reachAt 1 v).isEmpty then .candidate
+  else if !(p.reachAt 2 v).isEmpty then .moduleUse
   else .unused
+
+/-- For a pseudo-vertex: the module and the role (see `Percolation`). -/
+def pseudo? (p : Percolation) (v : Nat) : Option (ModuleIdx × Nat) :=
+  if v < p.numItems then none
+  else some (p.closure[(v - p.numItems) / 5]!, (v - p.numItems) % 5)
+
+end Percolation
 
 /--
 Percolates the seeds (`seeds[s]`: the item ids of seed `s`) through the needs of the modules in
 `closure` (the seeds' import closure; nothing outside it can be needed), at the three levels.
 -/
 def percolate (refs : RefCtx) (a : Analysis) (closure : Array ModuleIdx)
-    (seeds : Array (Array Nat)) (profile : Bool := false) : IO Result := do
+    (seeds : Array (Array Nat)) (profile : Bool := false) : IO Percolation := do
   let ix := refs.ix
   let t0 ← IO.monoMsNow
   let needTasks := closure.map fun i => Task.spawn fun _ => moduleNeeds refs a i
   let needs : Array ModuleNeeds ← needTasks.mapM fun t => IO.wait t
   let t1 ← IO.monoMsNow
-  -- items, then five pseudo-vertices per module `m` of the closure (`p` is its position):
   let n := a.numItems
-  let candV (p : Nat) := n + 5 * p      -- what `m`'s unrecorded uses can name
-  let metaV (p : Nat) := n + 5 * p + 1  -- `m`'s metaprograms
-  let rflV (p : Nat) := n + 5 * p + 2   -- `m`'s rfl theorems
-  let usesV (p : Nat) := n + 5 * p + 3  -- every module `m` records an extra use of
-  let allV (p : Nat) := n + 5 * p + 4   -- every item of `m`
+  let size := n + 5 * closure.size
+  let candV (p : Nat) := n + 5 * p
+  let metaV (p : Nat) := n + 5 * p + 1
+  let rflV (p : Nat) := n + 5 * p + 2
+  let usesV (p : Nat) := n + 5 * p + 3
+  let allV (p : Nat) := n + 5 * p + 4
   let pos : Std.HashMap ModuleIdx Nat := closure.zipIdx.foldl (fun m (i, p) => m.insert i p) {}
-  let mut succs : Array (Array Nat) := .replicate (n + 5 * closure.size) #[]
+  let mut srcs : Array Nat := #[]
+  let mut dsts : Array Nat := #[]
+  let mut kinds : ByteArray := .empty
   for mn in needs do
-    for (src, dsts) in mn.edges do
-      succs := succs.modify src (· ++ dsts)
-  let recorded : Graph := ⟨succs⟩
+    srcs := srcs ++ mn.srcs
+    dsts := dsts ++ mn.dsts
+    kinds := kinds ++ mn.kinds
+  let mut es : EdgeList := { srcs, dsts, kinds }
+  let mut edgeLists := #[es]
+  -- `candidate`: what unrecorded uses can name
   for (i, p) in closure.zipIdx do
     let mn := needs[p]!
-    succs := succs.set! (metaV p) mn.metaItems
-    succs := succs.set! (rflV p) mn.rflItems
-    let mut cand := #[metaV p, rflV p]
+    for v in mn.metaItems do es := es.add (metaV p) v
+    for v in mn.rflItems do es := es.add (rflV p) v
+    es := es.add (candV p) (metaV p) |>.add (candV p) (rflV p)
     for use in ix.getExtraModUses i do
       if let some q := (ix.getModuleIdx? use.module).bind (pos[·]?) then
         if q != p then
-          cand := cand.push (metaV q)
-          if !use.isMeta then cand := cand.push (rflV q)
-    succs := succs.set! (candV p) cand
+          es := es.add (candV p) (metaV q)
+          if !use.isMeta then es := es.add (candV p) (rflV q)
     for k in 0...a.items[i]!.items.size do
-      succs := succs.modify (a.offset[i]! + k) (·.push (candV p))
-  let candidate : Graph := ⟨succs⟩
+      es := es.add (a.offset[i]! + k) (candV p)
+  edgeLists := edgeLists.push es
+  -- `moduleUse`: any item of a used module
   for (i, p) in closure.zipIdx do
-    let ids := (Array.range a.items[i]!.items.size).map (a.offset[i]! + ·)
-    succs := succs.set! (allV p) ids
-    let mut uses := #[]
+    for k in 0...a.items[i]!.items.size do
+      es := es.add (allV p) (a.offset[i]! + k) |>.add (a.offset[i]! + k) (usesV p)
     for use in ix.getExtraModUses i do
       if let some q := (ix.getModuleIdx? use.module).bind (pos[·]?) then
-        if q != p && !uses.contains (allV q) then uses := uses.push (allV q)
-    succs := succs.set! (usesV p) uses
-    for v in ids do
-      succs := succs.modify v (·.push (usesV p))
-  let coarse : Graph := ⟨succs⟩
+        if q != p then es := es.add (usesV p) (allV q)
+  edgeLists := edgeLists.push es
+  let graphs := edgeLists.map fun es => (Graph.ofEdgesL size es.srcs es.dsts es.kinds).dedup
   let t2 ← IO.monoMsNow
   let mut init : Std.HashMap Nat Bitset := {}
   for (ids, s) in seeds.zipIdx do
     for v in ids do
       init := init.insert v ((init.getD v ∅).insert s)
   let roots := init.toArray.map (·.1)
-  let flow (g : Graph) := (g.flowForward roots (init.getD · ∅)).extract 0 n
-  -- `lazyPure`, so that the timings below measure the percolation itself
-  let res ← IO.lazyPure fun _ =>
-    ({ needed := flow recorded, candidate := flow candidate, moduleUse := flow coarse } : Result)
+  -- `lazyPure`, so that the timings below measure the work itself
+  let reach ← IO.lazyPure fun _ => graphs.map fun g => g.graph.flowForward roots (init.getD · ∅)
   let t3 ← IO.monoMsNow
+  let trees ← IO.lazyPure fun _ => graphs.map (·.graph.bfs roots)
+  let t4 ← IO.monoMsNow
   if profile then
     IO.eprintln s!"[profile] needs between items (parallel, {closure.size} modules): {t1 - t0} ms"
-    IO.eprintln s!"[profile] graph assembly ({n} items): {t2 - t1} ms"
+    IO.eprintln s!"[profile] graph assembly ({n} items, {graphs[0]!.graph.numEdges} needs): {t2 - t1} ms"
     IO.eprintln s!"[profile] percolation (three levels): {t3 - t2} ms"
-  return res
+    IO.eprintln s!"[profile] search trees for `why` (three levels): {t4 - t3} ms"
+  return { numItems := n, closure, graphs, reach, trees }
+
+/-- Why an item has its status: the last step of a shortest path from a seed, at its level. -/
+structure Why where
+  /-- The seed, if the item is one. -/
+  seed? : Option Nat := none
+  /-- The declaration that needs the item (for an approximation, the first of its item). -/
+  user? : Option Name := none
+  /-- The module of `user?`. -/
+  userModule? : Option Name := none
+  /-- The item's declaration that `user?` refers to (recorded needs only). -/
+  uses? : Option Name := none
+  /-- The kinds of the recorded need (`NeedKinds`). -/
+  kinds : Array String := #[]
+  /-- For an approximation: `metaprogram`, `rflTheorem` or `moduleUse`, and whether the use is
+  inside the item's own module. -/
+  rule? : Option String := none
+  sameModule? : Option Bool := none
+
+/-- The first name of item `v`, unmangled, and its module. -/
+def Analysis.firstName (a : Analysis) (ix : Index) (v : Nat) : Name × Name :=
+  let i := a.modOfItem[v]!
+  (privateToUserName a.items[i]!.items[v - a.offset[i]!]!.names[0]!, ix.modName i)
+
+/--
+For each wanted recorded need `u → v` (`wanted`: per `u`, the `v`s), a declaration of `u`, the
+declaration of `v` it refers to, and the kinds. Found by resolving the references of the constants
+of `u`'s module again, one pass per module, in parallel.
+-/
+def explainNeeds (refs : RefCtx) (a : Analysis) (wanted : Std.HashMap Nat (Array Nat)) :
+    Std.HashMap (Nat × Nat) (Name × Name × NeedKinds) := Id.run do
+  let ix := refs.ix
+  let mut byModule : Std.HashMap ModuleIdx (Array Nat) := {}
+  for (u, _) in wanted do
+    byModule := byModule.alter a.modOfItem[u]! (·.getD #[] |>.push u)
+  let tasks := byModule.toArray.map fun (i, _) => Task.spawn fun _ => Id.run do
+    let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
+    let mut out : Array ((Nat × Nat) × (Name × Name × NeedKinds)) := #[]
+    let mut done : Std.HashSet (Nat × Nat) := {}
+    for ci in ix.constants i do
+      let some r := a.items[i]!.constItem[ci.name]? | continue
+      let u := a.globalId r
+      let some vs := wanted[u]? | continue
+      let (names, kinds) := constRefs refs ci
+      for h : e in 0...names.size do
+        if let some (m, jm, redirected) := resolveDecl refs order i names[e] then
+          if let some v := a.itemOf? m jm then
+            if vs.contains v && !done.contains (u, v) then
+              let k : NeedKinds := ⟨kinds.get! e⟩
+              done := done.insert (u, v)
+              let k := if redirected then k ||| NeedKinds.regenerated else k
+              out := out.push ((u, v), (ci.name, m, k))
+    return out
+  return tasks.foldl (init := {}) fun m t => t.get.foldl (init := m) fun m (uv, x) => m.insert uv x
+
+/-- Why each item has its status (`none` if unused). -/
+def Percolation.whys (p : Percolation) (refs : RefCtx) (a : Analysis) (seeds : Array (Array Nat)) :
+    Array (Option Why) := Id.run do
+  let ix := refs.ix
+  let mut seedOf : Std.HashMap Nat Nat := {}
+  for (ids, s) in seeds.zipIdx do
+    for v in ids do
+      seedOf := seedOf.insertIfNew v s
+  -- the last step to each item: its predecessor and the edge, at the item's level
+  let level (v : Nat) : Option Nat := match p.status v with
+    | .needed => some 0 | .candidate => some 1 | .moduleUse => some 2 | .unused => none
+  let step (l v : Nat) : Nat × Nat :=
+    let e := p.trees[l]!.pred[v]! - 1
+    (p.trees[l]!.edgeSrc[e]!, e)
+  let mut wanted : Std.HashMap Nat (Array Nat) := {}
+  for v in 0...p.numItems do
+    if let some l := level v then
+      if !seedOf.contains v then
+        let (u, _) := step l v
+        if u < p.numItems then wanted := wanted.alter u (·.getD #[] |>.push v)
+  let explained := explainNeeds refs a wanted
+  return (Array.range p.numItems).map fun v => do
+    let l ← level v
+    if let some s := seedOf[v]? then return { seed? := s }
+    let (u, e) := step l v
+    if u < p.numItems then
+      let (userName, userModule) := a.firstName ix u
+      match explained[(u, v)]? with
+      | some (c, m, k) => return { user? := privateToUserName c, userModule? := userModule,
+                                   uses? := privateToUserName m, kinds := k.toNames }
+      | none => return { user? := userName, userModule? := userModule,
+                         kinds := (NeedKinds.mk (p.graphs[l]!.labels.get! e)).toNames }
+    -- an approximation: `v` ← role vertex of module `q` ← … ← an item `x` of module `p`
+    let (q, role) ← p.pseudo? u
+    let rule := match role with | 1 => "metaprogram" | 2 => "rflTheorem" | _ => "moduleUse"
+    let mut w := u
+    for _ in 0...4 do
+      if w < p.numItems then break
+      w := (step l w).1
+    let (userName, userModule) := a.firstName ix w
+    return { user? := userName, userModule? := userModule, rule? := rule,
+             sameModule? := userModule == ix.modName q }
 
 end Agitate.Percolate
