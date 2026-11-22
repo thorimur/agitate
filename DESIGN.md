@@ -759,6 +759,44 @@ flow scale linearly (2.5 s and 4.7 s at 1M). *Pitfall found while testing:* labe
 `v` with `{v}` makes bitsets of `v/8` bytes, which is quadratic in space. Seeds are few, so
 `percolate` does not hit this.
 
+## ImportGraph at `HEAD`
+
+Findings from reading upstream ImportGraph at `b9ec7f6` (2026-11-20, toolchain `v4.37.0-rc1`),
+mostly Thomas's `ImportGraph/Shake/` and `ImportGraph/WorkspaceModel/`. Facts only; how agitate
+relates to them is open (TODO). Paths are in that repository.
+
+* **Needs algebra.** `Shake/Core.lean` copies shake's types and adds `privOfPriv` kinds (`import
+  all` as an arrow, not a special case). `Shake/Algebra.lean` composes them: `Hierarchy` (a
+  `Provides` per module), `≫` (composition), `𝓘⟦n⟧` (transitive closure), `linearize`
+  (`public` ⊆ `private`), and `Needs.reduce` (minimal imports). `ImportNeeds`
+  (`Shake/DeclNeeds.lean:178-196`) splits each visibility by phase: runtime, meta or phaseless.
+* **Declaration needs.** `DeclNeeds` (`Shake/DeclNeeds.lean:569-661`) maps each declaration to
+  typed needs (`DeclDeclNeedsKind`, `:460-501`): `expr` (type or value), `runtimeIR`, `metaIR`, or
+  `comptime` (syntax kinds with source ranges, or indirect module uses).
+  * Same-module uses are kept apart from imported ones (`freeDecls` and `fixedDecls`), and
+    auto-generated declarations are linked to their parents (`isDeclNeedsAutoDecl`, `:818-825`: a
+    `_` component and no declaration range, the same signal agitate's items use).
+  * `Stance` (`:530-551`) and `Stance.toImportNeedsKind` (`:762-790`) turn a need into an import
+    kind.
+  * The needs are computed in an elaborated environment: from terms (`calcDeclConstInfoNeeds`), from
+    the command's syntax (`calcSyntaxNeeds`) and from LCNF (`calcIRNeeds`). Extra module uses are
+    captured per command (`withElabCommandCapturingNeeds`, `:952-974`), which is finer than per
+    module but still names no declaration.
+  * Reserved names are dropped as in shake (`getDepConstName?`, `:87-93`), not redirected as in
+    agitate.
+* **Hierarchies.** Two sources:
+  * `Shake/Environment.lean` builds one from the loaded environment's imports (`mkTransDeps`). The
+    file notes that this sees only what is loaded.
+  * `WorkspaceModel` (`WorkspaceModel/Model.lean`, `Build.lean`) parses every source header of the
+    workspace and the toolchain into modules, libraries and packages, with `transDeps`, `prevs` and
+    depths. A `lake` subprocess produces a summary, cached as JSON. Its future work lists "reading
+    oleans when available instead of re-parsing imports" (`Build.lean`, module docstring).
+* **Tools.** `#min_imports` and `#show_imports` use the environment hierarchy. `#find_home` and
+  `#import_diff` use `WorkspaceModel` with `ImportNeeds.providersByLib`. All of them work on one
+  file or one command, interactively.
+* **`Bitset`** is shake's `Nat` (`Shake/Core.lean:41-65`). Iteration takes `log2` and clears the bit
+  per element (`Shake/Basic.lean:72-95`).
+
 ## Rejected / deferred
 
 * **Assembling a real `Environment` from `readModuleData` output in order to call core's
