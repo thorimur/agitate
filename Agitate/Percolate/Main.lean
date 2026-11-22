@@ -134,6 +134,61 @@ structure Record where
   why? : Option Why
 deriving ToJson
 
+/-!
+Rendering, by hand: deriving `ToJson` builds a `Json` tree (objects are sorted maps) per record,
+which dominated the output phase. These render the same text as `(toJson r).compress`, keys in
+sorted order, `?` fields omitted when absent (checked byte for byte on Mathlib; DESIGN.md).
+-/
+
+private def str (acc : String) (s : String) : String := Json.renderString s acc
+private def nats (acc : String) (ns : Array Nat) : String := Id.run do
+  let mut acc := acc.push '['
+  for h : k in 0...ns.size do
+    if k > 0 then acc := acc.push ','
+    acc := acc ++ toString ns[k]
+  return acc.push ']'
+private def strs (acc : String) (ss : Array String) : String := Id.run do
+  let mut acc := acc.push '['
+  for h : k in 0...ss.size do
+    if k > 0 then acc := acc.push ','
+    acc := str acc ss[k]
+  return acc.push ']'
+private def pos (acc : String) (p : Position) : String :=
+  acc ++ "{\"column\":" ++ toString p.column ++ ",\"line\":" ++ toString p.line ++ "}"
+
+def Why.render (w : Why) (acc : String) : String := Id.run do
+  let mut acc := strs (acc ++ "{\"kinds\":") w.kinds
+  if let some r := w.rule? then acc := str (acc ++ ",\"rule\":") r
+  if let some b := w.sameModule? then acc := acc ++ ",\"sameModule\":" ++ toString b
+  if let some s := w.seed? then acc := acc ++ ",\"seed\":" ++ toString s
+  if let some u := w.user? then acc := str (acc ++ ",\"user\":") (toString u)
+  if let some m := w.userModule? then acc := str (acc ++ ",\"userModule\":") (toString m)
+  if let some u := w.uses? then acc := str (acc ++ ",\"uses\":") (toString u)
+  return acc.push '}'
+
+def Record.render (r : Record) : String := Id.run do
+  let mut acc := "{\"attributeCmds\":["
+  for h : k in 0...r.attributeCmds.size do
+    let c := r.attributeCmds[k]
+    if k > 0 then acc := acc.push ','
+    acc := str (acc ++ "{\"decl\":") (toString c.decl)
+    acc := str (acc ++ ",\"kind\":") c.kind
+    acc := str (acc ++ ",\"module\":") (toString c.module) |>.push '}'
+  acc := nats (acc ++ "],\"candidateFor\":") r.candidateFor
+  acc := acc ++ ",\"file\":"
+  acc := match r.file with | some f => str acc f | none => acc ++ "null"
+  acc := str (acc ++ ",\"module\":") (toString r.module)
+  acc := nats (acc ++ ",\"moduleUseFor\":") r.moduleUseFor
+  acc := strs (acc ++ ",\"names\":") (r.names.map toString)
+  acc := acc ++ ",\"range\":"
+  acc := match r.range with
+    | some rg => (pos (pos (acc ++ "{\"end\":") rg.«end» ++ ",\"start\":") rg.start).push '}'
+    | none => acc ++ "null"
+  acc := str (acc ++ ",\"status\":") r.status
+  acc := nats (acc ++ ",\"usedBy\":") r.usedBy
+  if let some w := r.why? then acc := w.render (acc ++ ",\"why\":")
+  return acc.push '}'
+
 /-- Import closure of `roots`, ascending. -/
 def importClosure (ix : Index) (roots : Array ModuleIdx) : Array ModuleIdx := Id.run do
   let mut seen : Bitset := ∅
@@ -211,7 +266,7 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
           moduleUseFor := (res.reachAt 2 v \ res.reachAt 1 v).toArray
           attributeCmds
           why? := whys[v]! }
-        out.putStrLn (toJson rec_).compress
+        out.putStrLn rec_.render
     for i in 0...ix.size do
       let mod := ix.modName i
       let some imps := imports[i]! | continue

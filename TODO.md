@@ -50,11 +50,11 @@
   adapt or contribute (DESIGN.md, "`Agitate.ImportGraph`").
 * `Bitset.union` (and `∩`, `\`): work on 8-byte words. Unions are 3–20× slower than `Nat.lor`
   (DESIGN.md, "`Agitate.ImportGraph`"); measure before and after.
-* `percolate`, step C: read code references from the IR (`.ir` parts; the `.olean` keeps the meta
-  closure) instead of approximating them by value references (DESIGN.md, "Declaration needs:
-  recreating ImportGraph's model").
+* `percolate` imports: `@[csimp]` substitutions are code references that terms do not show.
 * `percolate` imports: read `-- shake: keep` annotations (`Agitate/Header.lean`); `set_option` of
   options from `register_option` leaves no trace; test non-module files.
 * `percolate` imports: look at the 17 Batteries modules where it keeps a public import that shake
   does not (likely the abstracted-proof rule being too broad).
+* `percolate`: profile the imports' needs phase (0.8 s on Mathlib with three seeds) with `sample`
+  before optimizing it.
 

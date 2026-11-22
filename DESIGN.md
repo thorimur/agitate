@@ -854,6 +854,30 @@ parallel, reduction 0.27 s. The byte-wise `Bitset` does not matter here.
   modules can be dropped.
 * Non-module files get plain reachability and are untested.
 
+**Iterating on speed (Claude; Mathlib, three seeds, warm).**
+* *Rendering records by hand.* Deriving `ToJson` builds a `Json` tree per record, with objects as
+  sorted maps. Rendering the same text directly with `Json.renderString` took the output phase from
+  1.6–1.9 s to 0.95–1.3 s, and the whole run to 5.6 s. The Mathlib output is byte for byte the
+  same.
+* *Modules emptied by the deletion.* Their constants are skipped. That includes constants they
+  realised for kept items of other modules (equation lemmas, say): with every command of the
+  module gone, nothing realises them. This changed 406 Mathlib module records. Modules that keep
+  some items still keep such constants, since which command realised them is unknown.
+* *Not yet profiled.* The import needs (0.8 s) did not get faster. Where the time goes needs a
+  `sample` profile, not a guess (TODO).
+
+**Step C, reading code references from the IR: not done (Claude, open to revisiting).** Lean
+checks phases (`checkMeta`, `Lean/Compiler/LCNF/Visibility.lean`) on a declaration's initial LCNF,
+before inlining and specialisation. The `.ir` files hold IR after both: they contain the calls of
+other modules' inlined bodies (some private, which would demand `import all`) and lack the inlined
+functions themselves. Those are exactly the `@[inline]`/`@[specialize]` effects to be ignored for
+now (Thomas). The oleans keep base LCNF only for template-like declarations (`baseExt`). The value
+references of a declaration with code are a superset of its base LCNF references, apart from
+compiler substitutions: `@[implemented_by]` is handled, `@[csimp]` is not. So code needs stay
+approximated by value references. Their only excess is references in erased parts (proofs inside
+definitions), which may demand a runtime import where a `meta import` alone exists. The Batteries
+test builds with this.
+
 **Meta code (Thomas: read the module system quickstart, ignoring `@[inline]` and `@[specialize]`
 for now).** From "Quickstart: The Module System" (leanprover-community.github.io/extras), the rules
 step C must model:

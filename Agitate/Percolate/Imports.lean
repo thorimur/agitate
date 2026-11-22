@@ -53,7 +53,9 @@ def moduleImportNeeds (refs : RefCtx) (a : Analysis) (isToolchain : Array Bool)
     (i : ModuleIdx) : ImportNeeds := Id.run do
   let ix := refs.ix
   let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
-  let consts : Std.HashMap Name ConstantInfo :=
+  -- a module whose items are all deleted keeps only the needs of what is not a declaration
+  let anyKept := (List.range a.items[i]!.items.size).any fun k => !deleted (a.offset[i]! + k)
+  let consts : Std.HashMap Name ConstantInfo := if !anyKept then {} else
     ix.constants i |>.foldl (fun m ci => m.insert ci.name ci) {}
   let ranged : Std.HashSet Name := a.items[i]!.items.foldl (init := {}) fun s it =>
     if it.range.isSome then it.names.foldl (·.insert ·) s else s
@@ -80,7 +82,7 @@ def moduleImportNeeds (refs : RefCtx) (a : Analysis) (isToolchain : Array Bool)
     | _, _ => false
   -- the constants that stay, with their stances and resolved references
   let mut kept : Array (Name × Stance × Array (Name × ModuleIdx × NeedKinds)) := #[]
-  for ci in ix.constants i do
+  for ci in if anyKept then ix.constants i else #[] do
     if let some r := a.items[i]!.constItem[ci.name]? then
       if deleted (a.globalId r) then continue
     let su := stanceOf ix ci.name
