@@ -30,7 +30,7 @@ def header(lines):
             continue
         if not s or s.startswith("--"):
             continue
-        if s == "module" and module is None and not imports:
+        if s.split("--")[0].strip() == "module" and module is None and not imports:
             module = i
         elif IMPORT.match(s):
             imports.append(i)

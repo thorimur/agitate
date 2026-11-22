@@ -103,10 +103,11 @@ def Analysis.itemOf? (a : Analysis) (n : Name) (j : ModuleIdx) : Option Nat := d
 
 /-- What one module contributes to the graph. -/
 structure ModuleNeeds where
-  /-- Recorded needs between items, as parallel arrays: `srcs[k] → dsts[k]` with kinds `kinds[k]`. -/
+  /-- Recorded needs between items, as parallel arrays: `srcs[k] → dsts[k]` with kinds `kinds[k]`
+  (`DeclNeedKinds.bits`). -/
   srcs : Array Nat := #[]
   dsts : Array Nat := #[]
-  kinds : ByteArray := .empty
+  kinds : Array UInt32 := #[]
   /-- The module's items containing a metaprogram (see `isMetaprogram`). -/
   metaItems : Array Nat := #[]
   /-- The module's items containing an rfl theorem (`@[backward_defeq]`). -/
@@ -122,56 +123,56 @@ def isMetaprogram (ix : Index) (c : Name) : Bool :=
   isDeclMeta' ix c || (ix.find? c).any fun ci => ci.type.getUsedConstants.any (`Lean).isPrefixOf
 
 /--
-The needs of module `i`'s constants between items. References are resolved once per distinct name;
-each constant's needs are merged per needed item (kinds or-ed) by sorting `item * 256 + kinds`.
+The needs between items of module `i`'s declarations (`moduleDeclNeeds`). Each declaration's needs
+are merged per needed item (kinds or-ed) by sorting `item * 2^21 + kinds`; needs of different
+declarations of one item are merged later (`LGraph.dedup`).
 -/
-def moduleNeeds (refs : RefCtx) (a : Analysis) (i : ModuleIdx) : ModuleNeeds := Id.run do
+def moduleNeeds (refs : RefCtx) (a : Analysis) (i : ModuleIdx) (dn : ModuleDeclNeeds) :
+    ModuleNeeds := Id.run do
   let ix := refs.ix
-  let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
   let rfl : Std.HashSet Name := ix.moduleEntries backwardDefeqAttr.ext i |>.foldl (·.insert ·) {}
-  -- per referenced name: the item it resolves to, with `regenerated` if redirected
-  let mut cache : Std.HashMap Name (Option (Nat × Bool)) := {}
+  let itemOfConst := dn.consts.map fun ci => (a.items[i]!.constItem[ci.name]?).map fun r =>
+    (r.1 == i, a.globalId r)
   let mut out : ModuleNeeds := {}
   let mut metaItems : Std.HashSet Nat := {}
   let mut rflItems : Std.HashSet Nat := {}
-  for ci in ix.constants i do
-    let some (j, k) := a.items[i]!.constItem[ci.name]? | continue
-    let src := a.globalId (j, k)
-    if j == i then
-      if !metaItems.contains src && isMetaprogram ix ci.name then metaItems := metaItems.insert src
-      if !rflItems.contains src && rfl.contains ci.name then rflItems := rflItems.insert src
-    let (names, kinds) := constRefs refs ci (code := (stanceOf ix ci.name).phase != Phase.none)
-    let mut codes : Array Nat := #[]
-    for h : e in 0...names.size do
-      let n := names[e]
-      let d := match cache[n]? with
-        | some d => d
-        | none => (resolveDecl refs order i n).bind fun (m, jm, redirected) =>
-            (a.itemOf? m jm).map (·, redirected)
-      cache := cache.insert n d
-      if let some (d, redirected) := d then
-        if d != src then
-          let kind := kinds.get! e ||| (if redirected then NeedKinds.regenerated.bits else 0)
-          codes := codes.push (d * 256 + kind.toNat)
-    -- merge the needs of this constant per needed item
-    codes := codes.qsort (· < ·)
+  for h : k in 0...dn.consts.size do
+    let some (own, src) := itemOfConst[k]! | continue
+    let c := dn.consts[k]!.name
+    if own then
+      if !metaItems.contains src && isMetaprogram ix c then metaItems := metaItems.insert src
+      if !rflItems.contains src && rfl.contains c then rflItems := rflItems.insert src
+  -- the needs of one declaration, as `item * 2^21 + kinds`, flushed when the user changes
+  let flush (out : ModuleNeeds) (src : Nat) (codes : Array Nat) : ModuleNeeds := Id.run do
+    let mut out := out
     let mut last := none
-    for c in codes do
-      let (d, kind) := (c / 256, (c % 256).toUInt8)
+    for c in codes.qsort (· < ·) do
+      let (d, k) := (c >>> 21, (c &&& (2 ^ 21 - 1)).toUInt32)
       if last == some d then
-        let p := out.kinds.size - 1
-        out := { out with kinds := out.kinds.set! p (out.kinds.get! p ||| kind) }
+        out := { out with kinds := out.kinds.modify (out.kinds.size - 1) (· ||| k) }
       else
         out := { out with srcs := out.srcs.push src, dsts := out.dsts.push d,
-                          kinds := out.kinds.push kind }
+                          kinds := out.kinds.push k }
         last := some d
+    return out
+  let mut user := none
+  let mut codes : Array Nat := #[]
+  for h : e in 0...dn.users.size do
+    let some (_, src) := itemOfConst[dn.users[e]]! | continue
+    if user != some src then
+      if let some u := user then out := flush out u codes
+      user := some src
+      codes := #[]
+    let some d := a.itemOf? dn.used[e]! dn.usedMods[e]! | continue
+    if d != src then codes := codes.push ((d <<< 21) ||| dn.kinds[e]!.toNat)
+  if let some u := user then out := flush out u codes
   return { out with metaItems := metaItems.toArray, rflItems := rflItems.toArray }
 
 /-- An edge list under construction, as parallel arrays. -/
 structure EdgeList where
   srcs : Array Nat := #[]
   dsts : Array Nat := #[]
-  kinds : ByteArray := .empty
+  kinds : Array UInt32 := #[]
 
 /-- Adds the edge `s → d` without kinds (an approximation's edge). -/
 @[inline] def EdgeList.add (es : EdgeList) (s d : Nat) : EdgeList :=
@@ -188,6 +189,10 @@ Pseudo-vertices: five per module `m` of the closure, at `numItems + 5 * p + r` f
 structure Percolation where
   numItems : Nat
   closure : Array ModuleIdx
+  /-- The position of each module in `closure`. -/
+  pos : Std.HashMap ModuleIdx Nat
+  /-- The declaration needs of the modules of `closure`, in its order (`moduleDeclNeeds`). -/
+  declNeeds : Array ModuleDeclNeeds
   graphs : Array LGraph
   reach : Array (Array Bitset)
   trees : Array Graph.BfsTree
@@ -202,6 +207,12 @@ def status (p : Percolation) (v : Nat) : Status :=
   else if !(p.reachAt 1 v).isEmpty then .candidate
   else if !(p.reachAt 2 v).isEmpty then .moduleUse
   else .unused
+
+/-- The declaration needs of module `i`: kept from the percolation if `i` is in the closure. -/
+def declNeedsOf (p : Percolation) (refs : RefCtx) (i : ModuleIdx) : ModuleDeclNeeds :=
+  match p.pos[i]? with
+  | some q => p.declNeeds[q]!
+  | none => moduleDeclNeeds refs i
 
 /-- For a pseudo-vertex: the module and the role (see `Percolation`). -/
 def pseudo? (p : Percolation) (v : Nat) : Option (ModuleIdx × Nat) :=
@@ -218,8 +229,12 @@ def percolate (refs : RefCtx) (a : Analysis) (closure : Array ModuleIdx)
     (seeds : Array (Array Nat)) (profile : Bool := false) : IO Percolation := do
   let ix := refs.ix
   let t0 ← IO.monoMsNow
-  let needTasks := closure.map fun i => Task.spawn fun _ => moduleNeeds refs a i
-  let needs : Array ModuleNeeds ← needTasks.mapM fun t => IO.wait t
+  let needTasks := closure.map fun i => Task.spawn fun _ =>
+    let dn := moduleDeclNeeds refs i
+    (moduleNeeds refs a i dn, dn)
+  let both ← needTasks.mapM fun t => IO.wait t
+  let needs : Array ModuleNeeds := both.map (·.1)
+  let declNeeds := both.map (·.2)
   let t1 ← IO.monoMsNow
   let n := a.numItems
   let size := n + 5 * closure.size
@@ -231,7 +246,7 @@ def percolate (refs : RefCtx) (a : Analysis) (closure : Array ModuleIdx)
   let pos : Std.HashMap ModuleIdx Nat := closure.zipIdx.foldl (fun m (i, p) => m.insert i p) {}
   let mut srcs : Array Nat := #[]
   let mut dsts : Array Nat := #[]
-  let mut kinds : ByteArray := .empty
+  let mut kinds : Array UInt32 := #[]
   for mn in needs do
     srcs := srcs ++ mn.srcs
     dsts := dsts ++ mn.dsts
@@ -277,7 +292,7 @@ def percolate (refs : RefCtx) (a : Analysis) (closure : Array ModuleIdx)
     IO.eprintln s!"[profile] graph assembly ({n} items, {graphs[0]!.graph.numEdges} needs): {t2 - t1} ms"
     IO.eprintln s!"[profile] percolation (three levels): {t3 - t2} ms"
     IO.eprintln s!"[profile] search trees for `why` (three levels): {t4 - t3} ms"
-  return { numItems := n, closure, graphs, reach, trees }
+  return { numItems := n, closure, pos, declNeeds, graphs, reach, trees }
 
 /-- Why an item has its status: the last step of a shortest path from a seed, at its level. -/
 structure Why where
@@ -289,8 +304,10 @@ structure Why where
   userModule? : Option Name := none
   /-- The item's declaration that `user?` refers to (recorded needs only). -/
   uses? : Option Name := none
-  /-- The kinds of the recorded need (`NeedKinds`). -/
+  /-- The kinds of the recorded need (`DeclNeedKind.toString`). -/
   kinds : Array String := #[]
+  /-- For a presentability need: the private meta declarations through which `user?` needs it. -/
+  through : Array Name := #[]
   /-- For an approximation: `metaprogram`, `rflTheorem` or `moduleUse`, and whether the use is
   inside the item's own module. -/
   rule? : Option String := none
@@ -303,32 +320,28 @@ def Analysis.firstName (a : Analysis) (ix : Index) (v : Nat) : Name × Name :=
 
 /--
 For each wanted recorded need `u → v` (`wanted`: per `u`, the `v`s), a declaration of `u`, the
-declaration of `v` it refers to, and the kinds. Found by resolving the references of the constants
-of `u`'s module again, one pass per module, in parallel.
+declaration of `v` it needs, the kinds, and the `through` path of a presentability need. From the
+needs of `u`'s module (`dnOf`), one module per task, in parallel.
 -/
-def explainNeeds (refs : RefCtx) (a : Analysis) (wanted : Std.HashMap Nat (Array Nat)) :
-    Std.HashMap (Nat × Nat) (Name × Name × NeedKinds) := Id.run do
-  let ix := refs.ix
+def explainNeeds (a : Analysis) (dnOf : ModuleIdx → ModuleDeclNeeds)
+    (wanted : Std.HashMap Nat (Array Nat)) :
+    Std.HashMap (Nat × Nat) (Name × Name × DeclNeedKinds × List Name) := Id.run do
   let mut byModule : Std.HashMap ModuleIdx (Array Nat) := {}
   for (u, _) in wanted do
     byModule := byModule.alter a.modOfItem[u]! (·.getD #[] |>.push u)
   let tasks := byModule.toArray.map fun (i, _) => Task.spawn fun _ => Id.run do
-    let order : Thunk (Array Index.LoadedModule) := .mk fun _ => ix.loadOrder i
-    let mut out : Array ((Nat × Nat) × (Name × Name × NeedKinds)) := #[]
+    let dn := dnOf i
+    let mut out : Array ((Nat × Nat) × (Name × Name × DeclNeedKinds × List Name)) := #[]
     let mut done : Std.HashSet (Nat × Nat) := {}
-    for ci in ix.constants i do
-      let some r := a.items[i]!.constItem[ci.name]? | continue
+    for h : e in 0...dn.users.size do
+      let c := dn.consts[dn.users[e]]!.name
+      let some r := a.items[i]!.constItem[c]? | continue
       let u := a.globalId r
       let some vs := wanted[u]? | continue
-      let (names, kinds) := constRefs refs ci (code := (stanceOf ix ci.name).phase != Phase.none)
-      for h : e in 0...names.size do
-        if let some (m, jm, redirected) := resolveDecl refs order i names[e] then
-          if let some v := a.itemOf? m jm then
-            if vs.contains v && !done.contains (u, v) then
-              let k : NeedKinds := ⟨kinds.get! e⟩
-              done := done.insert (u, v)
-              let k := if redirected then k ||| NeedKinds.regenerated else k
-              out := out.push ((u, v), (ci.name, m, k))
+      let some v := a.itemOf? dn.used[e]! dn.usedMods[e]! | continue
+      if vs.contains v && !done.contains (u, v) then
+        done := done.insert (u, v)
+        out := out.push ((u, v), (c, dn.used[e]!, ⟨dn.kinds[e]!⟩, dn.through[e]?.getD []))
     return out
   return tasks.foldl (init := {}) fun m t => t.get.foldl (init := m) fun m (uv, x) => m.insert uv x
 
@@ -352,7 +365,7 @@ def Percolation.whys (p : Percolation) (refs : RefCtx) (a : Analysis) (seeds : A
       if !seedOf.contains v then
         let (u, _) := step l v
         if u < p.numItems then wanted := wanted.alter u (·.getD #[] |>.push v)
-  let explained := explainNeeds refs a wanted
+  let explained := explainNeeds a (p.declNeedsOf refs) wanted
   return (Array.range p.numItems).map fun v => do
     let l ← level v
     if let some s := seedOf[v]? then return { seed? := s }
@@ -360,10 +373,12 @@ def Percolation.whys (p : Percolation) (refs : RefCtx) (a : Analysis) (seeds : A
     if u < p.numItems then
       let (userName, userModule) := a.firstName ix u
       match explained[(u, v)]? with
-      | some (c, m, k) => return { user? := privateToUserName c, userModule? := userModule,
-                                   uses? := privateToUserName m, kinds := k.toNames }
+      | some (c, m, k, through) =>
+        return { user? := privateToUserName c, userModule? := userModule,
+                 uses? := privateToUserName m, kinds := k.toStrings,
+                 through := through.toArray.map privateToUserName }
       | none => return { user? := userName, userModule? := userModule,
-                         kinds := (NeedKinds.mk (p.graphs[l]!.labels.get! e)).toNames }
+                         kinds := (DeclNeedKinds.mk p.graphs[l]!.labels[e]!).toStrings }
     -- an approximation: `v` ← role vertex of module `q` ← … ← an item `x` of module `p`
     let (q, role) ← p.pseudo? u
     let rule := match role with | 1 => "metaprogram" | 2 => "rflTheorem" | _ => "moduleUse"

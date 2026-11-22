@@ -33,20 +33,22 @@ def root0 (v : Nat) : Bitset := if v == 0 then {0} else ∅
 #guard ((chain 100000).components #[0]).comps.size == 100000
 
 -- edge lists: a counting sort keeps each vertex's edges in input order, labels alongside
-def lg := Graph.ofEdgesL 3 #[2, 0, 2, 0, 0] #[0, 1, 1, 1, 2] ⟨#[1, 2, 4, 8, 16]⟩
+def lg := Graph.ofEdgesL 3 #[2, 0, 2, 0, 0] #[0, 1, 1, 1, 2] #[1, 2, 4, 8, 16]
 #guard lg.graph.succs 0 == #[1, 1, 2] && lg.graph.succs 1 == #[] && lg.graph.succs 2 == #[0, 1]
-#guard lg.labels.data == #[2, 8, 16, 1, 4]
+#guard lg.labels == #[2, 8, 16, 1, 4]
 -- deduplication or-s the labels of repeated edges
-#guard lg.dedup.graph.succs 0 == #[1, 2] && lg.dedup.labels.data == #[10, 16, 1, 4]
+#guard lg.dedup.graph.succs 0 == #[1, 2] && lg.dedup.labels == #[10, 16, 1, 4]
 
 -- breadth-first search: shortest paths, edge sources
 def t := g.bfs #[0]
 #guard t.reached == #[true, true, true, true, false]
 #guard t.pred[3]! != 0 && t.edgeSrc[t.pred[3]! - 1]! == 2
 
--- need kinds
-open Agitate.ImportGraph.NeedKinds in
-#guard (type ||| regenerated).toNames == #["type", "regenerated"] && (type ||| value).has value
+-- need kinds: every payload-free kind has its own bit, and sets record kinds without payloads
+#guard (List.range DeclNeedKind.numBits).all fun b => (DeclNeedKind.ofBit b).bit == b
+open DeclNeedKind in
+#guard (DeclNeedKinds.single (expr .value (some true) .value) ∪ .single (metaIR none [`a])).toArray ==
+  #[expr .value (some true) .value, metaIR none []]
 
 -- range groups: nested ranges join the enclosing one, in source order
 open Lean in
@@ -81,13 +83,21 @@ def metaNeeds : ImportNeeds := ({} : ImportNeeds).insert { isExported := false, 
 
 -- stances: public meta code using runtime code needs a public meta import; a theorem's proof only
 -- a private, phaseless one
-open NeedKinds in
-#guard ({ isPublic := true, phase := .meta } : Stance).importNeeds (value ||| code)
-    { isPublic := true, phase := .runtime } ==
+open DeclNeedKind in
+#guard ({ isPublic := true, phase := .meta } : Stance).importNeeds
+    (DeclNeedKinds.single (expr .value) ∪ .single (metaIR none)) { isPublic := true, phase := .runtime } ==
   #[{ isExported := false }, { isExported := true, isMeta? := some true }]
-open NeedKinds in
-#guard ({ isPublic := true } : Stance).importNeeds value { isPublic := true } == #[{ isExported := false }]
+open DeclNeedKind in
+#guard ({ isPublic := true } : Stance).importNeeds (.single (expr .value)) { isPublic := true } ==
+  #[{ isExported := false }]
 -- runtime code needs even a constructor without `meta`
-open NeedKinds in
-#guard ({ isPublic := false, phase := .runtime } : Stance).importNeeds code { isPublic := true } ==
-  #[{ isExported := false, isMeta? := some false }]
+#guard ({ isPublic := false, phase := .runtime } : Stance).importNeeds (.single .runtimeIR)
+    { isPublic := true } == #[{ isExported := false, isMeta? := some false }]
+-- a need at the used declaration's value needs it exposed, or else `import all`
+open DeclNeedKind in
+#guard ({ isPublic := true } : Stance).importNeeds (.single (expr .value none .value))
+    { isPublic := true, isExposed := false } == #[{ isExported := false, isAll := true }]
+-- a re-exported need of an auxiliary declaration is public even in a private value
+open DeclNeedKind in
+#guard ({ isPublic := true } : Stance).importNeeds (.single (expr .value (some true)))
+    { isPublic := true } == #[{ isExported := true }]

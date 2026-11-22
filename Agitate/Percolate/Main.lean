@@ -111,8 +111,6 @@ structure ModuleRecord where
   importsChanged : Bool
 deriving ToJson
 
-deriving instance ToJson for Why
-
 /-- One source item. -/
 structure Record where
   module : Name
@@ -132,12 +130,11 @@ structure Record where
   attributeCmds : Array AttrCmd
   /-- Why the item has its status (absent if `unused`). -/
   why? : Option Why
-deriving ToJson
 
 /-!
 Rendering, by hand: deriving `ToJson` builds a `Json` tree (objects are sorted maps) per record,
-which dominated the output phase. These render the same text as `(toJson r).compress`, keys in
-sorted order, `?` fields omitted when absent (checked byte for byte on Mathlib; DESIGN.md).
+which dominated the output phase. These render compact JSON with keys in sorted order and absent
+optional fields omitted, as `(toJson r).compress` did (checked byte for byte on Mathlib; DESIGN.md).
 -/
 
 private def str (acc : String) (s : String) : String := Json.renderString s acc
@@ -161,6 +158,7 @@ def Why.render (w : Why) (acc : String) : String := Id.run do
   if let some r := w.rule? then acc := str (acc ++ ",\"rule\":") r
   if let some b := w.sameModule? then acc := acc ++ ",\"sameModule\":" ++ toString b
   if let some s := w.seed? then acc := acc ++ ",\"seed\":" ++ toString s
+  if !w.through.isEmpty then acc := strs (acc ++ ",\"through\":") (w.through.map toString)
   if let some u := w.user? then acc := str (acc ++ ",\"user\":") (toString u)
   if let some m := w.userModule? then acc := str (acc ++ ",\"userModule\":") (toString m)
   if let some u := w.uses? then acc := str (acc ++ ",\"uses\":") (toString u)
@@ -244,7 +242,7 @@ def run (args : Args) (r : Resolver) : IO UInt32 := do
   let whys ← timed "why (parallel)" <| IO.lazyPure fun _ => res.whys refs a seedIds
   let deleted (v : Nat) : Bool := args.delete.contains (res.status v).toString
   let isToolchain := ix.modNames.map fun m => (r.ws.findTargetModule? m).isNone
-  let imports ← timed "imports after deletion" <| importsAfter refs a isToolchain deleted args.profile
+  let imports ← timed "imports after deletion" <| importsAfter refs a (res.declNeedsOf refs) isToolchain deleted args.profile
   timed "output" do
     out.putStrLn (toJson ({ seeds := seedNames, delete := args.delete } : Header)).compress
     for i in 0...ix.size do

@@ -843,8 +843,8 @@ do not show:
 
 Result: the suggested imports build, a second run suggests no change, and 139 of 192 modules get
 the same imports as `agitate --fix` (shake). The others differ in which module provides a need,
-public against private, or `meta`. In 17 cases `percolate` keeps a public import that shake does
-not, which is more conservative (likely rule 2). Mathlib (three seeds, two runs): 12.1 s cold and
+public against private, or `meta`. In 17 cases `percolate` kept a public import that shake did not:
+these turned out to be files that declare nothing (see "Needs per edge"). Mathlib (three seeds, two runs): 12.1 s cold and
 6.7 s warm. Imports after deletion take 1.2 s: original hierarchy 0.1 s, needs 0.8–0.9 s in
 parallel, reduction 0.27 s. The byte-wise `Bitset` does not matter here.
 
@@ -865,6 +865,49 @@ parallel, reduction 0.27 s. The byte-wise `Bitset` does not matter here.
   some items still keep such constants, since which command realised them is unknown.
 * *Not yet profiled.* The import needs (0.8 s) did not get faster. Where the time goes needs a
   `sample` profile, not a guess (TODO).
+
+**Needs per edge (Claude's proposal; Thomas agreed).** The first `NeedKinds` was a byte of flags.
+It dropped ImportGraph's `isReExported`, the upstream location, and the split between `runtimeIR`
+and `metaIR` with its `through` path. Those semantics then came back as patches in `percolate`'s
+imports: the location of auxiliary declarations, the presentability closure, and phase inheritance.
+`Agitate.ImportGraph.DeclNeedKind` now mirrors `DeclDeclNeedsKind` constructor by constructor,
+plus agitate's four. `DeclNeedKinds` packs a set of them (payloads dropped) into a `UInt32`, and
+`LGraph` labels are `UInt32`s (unboxed in an `Array`). `Stance.importNeedOf` reads every field.
+`Agitate.moduleDeclNeeds` produces them per module, with the module context the patches needed:
+* an auxiliary's needs are re-exported where its parent uses it publicly (an override only where it
+  changes something);
+* auxiliary definitions get the phases of the same-module code using them;
+* a public meta declaration gets `metaIR (some true)` needs, with `through`, on what the private
+  meta code it reaches uses.
+
+**Decisions.**
+* *Upstream location (Thomas).* `.value` (needing the used declaration's value: unfolding) is
+  modelled though nothing here fills it. Thomas pointed out that it is what deciding whether a
+  definition can be `@[no_expose]`d needs, which is in scope for ImportGraph. Upstreamable code must
+  be general enough for ImportGraph's intended purpose, not only its current code (summarized).
+  Measuring unfolding is out of scope here (Thomas).
+* *Auxiliary declarations stay distinct (Thomas, summarized: needed for reporting; fold them into
+  their parent only if keeping them is a performance bottleneck).* They are not folded. The
+  profile below shows no reason to.
+* *Files that declare nothing (Claude).* They now need what they import, each import in its own
+  kind, so the reduction drops only imports the others already provide, and what they re-export is
+  unchanged. Before, they kept their imports verbatim. These files were the "17 conservative public
+  imports" of step B, mostly `deprecated_module` stubs. Shake removes all their imports instead,
+  since it sees no needs, which breaks their importers. So agreement with `agitate --fix` fell from
+  140 to 122 of 192 Batteries modules. The suggested imports still build, and a second run changes
+  nothing.
+
+**Speed.** Each closure module's needs are computed once, in the needs phase, and kept for `why` and
+the imports (about 0.3 GB more peak memory on Mathlib). Mathlib, three seeds, against the previous
+binary, alternated under a machine load of 7–11, so only same-run comparisons count:
+* needs 1.06–1.13 s against 0.66–0.71 s;
+* `why` 0.13 s against 0.22 s;
+* imports 0.70–0.75 s against 1.28–1.69 s;
+* total CPU time 17.2 s against 22.4 s.
+
+A `sample` profile is dominated by reading the oleans (the index's prefault pass) and threads
+waiting. The needs phase spends its time in `foldConsts`, and about 1 000 samples in `Index.rawEntries`'
+linear slot search (TODO).
 
 **Step C, reading code references from the IR: not done (Claude, open to revisiting).** Lean
 checks phases (`checkMeta`, `Lean/Compiler/LCNF/Visibility.lean`) on a declaration's initial LCNF,

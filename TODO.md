@@ -53,8 +53,13 @@
 * `percolate` imports: `@[csimp]` substitutions are code references that terms do not show.
 * `percolate` imports: read `-- shake: keep` annotations (`Agitate/Header.lean`); `set_option` of
   options from `register_option` leaves no trace; test non-module files.
-* `percolate` imports: look at the 17 Batteries modules where it keeps a public import that shake
-  does not (likely the abstracted-proof rule being too broad).
+* `percolate`: per-declaration extension lookups go through `Index.rawEntries`, whose slot search is
+  linear (about 1 000 samples in a Mathlib `sample` profile, via `isDeclMeta'` and `implementedBy?`).
+  `Index` is shared code (run `agitate-check`). Stances of used declarations could also be cached per
+  module.
+* Upstream locations (`.value`): the olean producer always records `.type`. Signals for unfolding
+  (`@[defeq]` theorems in other modules, equation lemmas realised downstream) are not pursued for
+  now (Thomas: "We don't need to work on measuring unfolding here, though").
 * `percolate`: profile the imports' needs phase (0.8 s on Mathlib with three seeds) with `sample`
   before optimizing it.
 

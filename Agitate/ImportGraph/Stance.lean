@@ -20,12 +20,15 @@ at `b9ec7f6`), with the phase rules of the module system quickstart
   marked meta. Runtime code needs it imported without `meta`; meta code needs it lifted by a
   `meta import`, unless it is meta already, when any import will do.
 * Meta code that must be presentable (usable downstream: public meta declarations, and private meta
-  declarations of the same module that their code reaches) needs its code imported publicly.
+  declarations of the same module that their code reaches) needs its code imported publicly
+  (`metaIR (some true)`).
+* A need on the used declaration's value (`expr _ _ .value`: unfolding it) needs that value visible:
+  exposed, or else `import all`.
 -/
 module
 
 public import Agitate.ImportGraph.Imports
-public import Agitate.ImportGraph.NeedKinds
+public import Agitate.ImportGraph.DeclNeedKinds
 
 public section
 
@@ -49,35 +52,37 @@ deriving BEq, Inhabited, Repr
 
 namespace Stance
 
+/-- Whether the declaration's data at `loc` is private: its type if the declaration is private, its
+value unless exposed. -/
+def isPrivateAt (s : Stance) : ConstLocation → Bool
+  | .type => !s.isPublic
+  | .value => !s.isExposed
+
 /--
-The import needs of a declaration with stance `user` on one with stance `used`, through a need of
-kinds `k`. `presentable` says whether the user's code must be presentable (by default, iff it is
-public); it matters only for meta code.
+The import need of a declaration with stance `user` on one with stance `used`, through a need of
+kind `k` (as ImportGraph's `Stance.toImportNeedsKind`). `none` for kinds that only record why
+(`implementedBy`, `regenerated`): producers add the need itself.
 -/
-def importNeeds (user : Stance) (k : NeedKinds) (used : Stance)
-    (presentable : Bool := user.isPublic) : Array ImportNeed := Id.run do
-  let mut out := #[]
-  let visible (exported : Bool) : ImportNeed :=
-    { isExported := exported, isAll := !exported && !used.isPublic }
-  if k.has .type || k.has .structural then
-    out := out.push (visible user.isPublic)
-  if k.has .value then
-    out := out.push (visible user.isExposed)
-  if k.has .code || k.has .implementedBy then
-    -- as Lean checks code (`Lean.Compiler.LCNF.checkMeta`): anything not marked meta (constructors
-    -- included) is available to code only in the phase it was imported in
-    match user.phase with
-    | .meta =>
-      out := out.push { visible presentable with
-        isMeta? := if used.phase == .meta then none else some true }
-    | .runtime =>
-      out := out.push { visible false with isMeta? := some false }
-    | .none => pure ()
-  if k.has .preresolved then
-    -- the name must resolve when the quotation's code runs downstream: a runtime need, public if
-    -- the user is (as `agitate` counts it)
-    out := out.push { visible user.isPublic with isMeta? := some false }
-  return out
+def importNeedOf (user : Stance) (k : DeclNeedKind) (used : Stance) : Option ImportNeed :=
+  -- visible where needed: from the private scope (`import all`) if what is needed is private
+  let visible (exported : Bool) (loc : ConstLocation := .type) : ImportNeed :=
+    { isExported := exported, isAll := !exported && used.isPrivateAt loc }
+  match k with
+  | .expr down r up =>
+    some (visible (r.getD (match down with | .type => user.isPublic | .value => user.isExposed)) up)
+  | .structural => some (visible user.isPublic)
+  -- code: anything not marked meta (constructors included) is available only in its import's phase
+  | .runtimeIR => some { visible false with isMeta? := some false }
+  | .metaIR r _ =>
+    some { visible (r.getD user.isPublic) with isMeta? := if used.phase == .meta then none else some true }
+  | .comptime _ => some { visible false with isMeta? := if used.phase == .meta then none else some true }
+  -- the name must resolve where the quotation's code runs: at runtime, publicly if the user is
+  | .preresolved => some { visible user.isPublic with isMeta? := some false }
+  | .implementedBy | .regenerated => none
+
+/-- The import needs of `user` on `used` through the needs `ks`. -/
+def importNeeds (user : Stance) (ks : DeclNeedKinds) (used : Stance) : Array ImportNeed :=
+  ks.toArray.filterMap (user.importNeedOf · used)
 
 end Stance
 

@@ -9,8 +9,8 @@ Authors: Thomas Murrills
 
 Graphs over dense vertices `0, …, n - 1` (all source declarations of Mathlib, say), stored in
 compressed sparse row form: every edge in one array, plus an offset per vertex. Building one is a
-counting sort of an edge list, so there is no allocation per vertex. Edges may carry a label byte
-(`LGraph`), e.g. the kinds of a need (`Agitate.ImportGraph.NeedKinds`).
+counting sort of an edge list, so there is no allocation per vertex. Edges may carry a label word
+(`LGraph`), e.g. the kinds of a need (`Agitate.ImportGraph.DeclNeedKinds`).
 
 Graphs may be cyclic (mutual inductives make declaration graphs so): labels propagate over strongly
 connected components, found by an iterative Tarjan. Core's `Lean.SCC.scc` recurses, which overflows
@@ -32,10 +32,11 @@ structure Graph where
   targets : Array Nat
 deriving Inhabited
 
-/-- A graph with a label byte per edge, aligned with `graph.targets`. -/
+/-- A graph with a label word per edge, aligned with `graph.targets` (`UInt32`s are unboxed in an
+`Array`, so this allocates nothing per edge). -/
 structure LGraph where
   graph : Graph
-  labels : ByteArray
+  labels : Array UInt32
 deriving Inhabited
 
 namespace Graph
@@ -57,7 +58,7 @@ The graph on `n` vertices with the edges `srcs[k] → dsts[k]`, and the labels `
 alongside, by a counting sort (each vertex keeps its edges in input order). Every source must be
 `< n`.
 -/
-def ofEdgesL (n : Nat) (srcs dsts : Array Nat) (labels : ByteArray) : LGraph := Id.run do
+def ofEdgesL (n : Nat) (srcs dsts : Array Nat) (labels : Array UInt32) : LGraph := Id.run do
   let mut offsets : Array Nat := .replicate (n + 1) 0
   for s in srcs do
     offsets := offsets.modify (s + 1) (· + 1)
@@ -66,12 +67,12 @@ def ofEdgesL (n : Nat) (srcs dsts : Array Nat) (labels : ByteArray) : LGraph := 
   -- `pos[v]`: where `v`'s next edge goes; starts as a copy of `offsets`
   let mut pos := offsets.extract 0 n
   let mut targets : Array Nat := .replicate srcs.size 0
-  let mut out : ByteArray := ⟨.replicate srcs.size 0⟩
+  let mut out : Array UInt32 := .replicate srcs.size 0
   for h : k in 0...srcs.size do
     let s := srcs[k]
     let p := pos[s]!
     targets := targets.set! p dsts[k]!
-    out := out.set! p (labels.get! k)
+    out := out.set! p labels[k]!
     pos := pos.set! s (p + 1)
   return { graph := { offsets, targets }, labels := out }
 
@@ -86,7 +87,7 @@ def ofSuccs (succs : Array (Array Nat)) : Graph := Id.run do
 
 /-- `ofEdgesL` without labels. -/
 def ofEdges (n : Nat) (srcs dsts : Array Nat) : Graph :=
-  (ofEdgesL n srcs dsts ⟨.replicate srcs.size 0⟩).graph
+  (ofEdgesL n srcs dsts (.replicate srcs.size 0)).graph
 
 /--
 Strongly connected components of the part of a graph reachable from some roots, in reverse
@@ -223,14 +224,14 @@ def dedup (lg : LGraph) : LGraph := Id.run do
   let mut slot : Array Nat := .replicate n 0
   let mut offsets : Array Nat := .replicate (n + 1) 0
   let mut targets : Array Nat := .emptyWithCapacity g.numEdges
-  let mut labels : ByteArray := .emptyWithCapacity g.numEdges
+  let mut labels : Array UInt32 := .emptyWithCapacity g.numEdges
   for v in 0...n do
     for e in (g.start v)...(g.stop v) do
       let w := g.targets[e]!
-      let l := lg.labels.get! e
+      let l := lg.labels[e]!
       if seen[w]! == v + 1 then
         let p := slot[w]!
-        labels := labels.set! p (labels.get! p ||| l)
+        labels := labels.modify p (· ||| l)
       else
         seen := seen.set! w (v + 1)
         slot := slot.set! w targets.size

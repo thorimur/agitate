@@ -157,8 +157,11 @@ there is one line per item of the project's loaded modules, in module order and 
 * **`why`** (absent for `unused` items): the last step of a shortest path from a seed, at the
   item's status. It is `{"seed": i}` for a seed. For a recorded need, it names the declaration that
   needs the item (`user`, in `userModule`), the item's declaration it refers to (`uses`), and the
-  kinds of need: `type`, `value`, `implementedBy`, `preresolved`, `structural` (an inductive's
-  constructors, a recursor's mutual block) and `regenerated` (through an equation lemma or similar).
+  kinds of need (`Agitate.ImportGraph.DeclNeedKind`): `type`, `value` (with `(public)` where an
+  auxiliary declaration's need is re-exported), `runtimeIR`, `metaIR` (`metaIR (public)` for a
+  public meta declaration's need through private meta code, listed in `through`), `implementedBy`,
+  `preresolved`, `structural` (an inductive's constructors, a recursor's mutual block) and
+  `regenerated` (through an equation lemma or similar).
   For the other statuses, it names the rule (`metaprogram`, `rflTheorem` or `moduleUse`), an item of
   the using module, and whether the use is inside the item's own module (`sameModule`).
 
@@ -193,7 +196,8 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   by a counting sort, optionally with a label byte per edge (`LGraph`, merged by `dedup`). It also
   holds strongly connected components by an iterative Tarjan (`components`), label propagation over
   them (`flowForward`) and breadth-first search trees (`bfs`).
-* `NeedKinds`: kinds of need between declarations, as bit flags.
+* `DeclNeedKinds`: kinds of need between declarations (`DeclNeedKind`, as ImportGraph's
+  `DeclDeclNeedsKind` with agitate's additions), and sets of them packed in a `UInt32`.
 * `Imports`: the algebra of module-system imports: kinds of import, their composition,
   hierarchies, and minimal imports for a set of needs (`ImportNeeds.reduce`).
 * `Stance`: a declaration's visibility, exposure and phase, and the imports a need demands
@@ -214,8 +218,8 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   * `Agitate/Refs.lean`: resolving referenced constants to modules.
   * `Agitate/Preresolved.lean`: needs from names preresolved by syntax quotations, a workaround
     for uses Lean does not record.
-  * `Agitate/DeclNeeds.lean`: each constant's references with their kinds of need, and how a
-    reference resolves to a declaration.
+  * `Agitate/DeclNeeds.lean`: the needs of a module's declarations, read from the index
+    (`moduleDeclNeeds`), and declarations' stances.
   * `Agitate/Bitset.lean` (an alias of `Agitate.ImportGraph.Bitset`), `Agitate/Header.lean`: module sets,
     and source headers and `--fix`.
 * `Agitate/Shake.lean` (with `Main.lean`): `agitate`'s analysis, adapted from upstream
