@@ -5,9 +5,13 @@
 * Parity with `lake shake` (same toolchain) is the correctness bar, except for deliberate fixes,
   which Thomas prefers over reproducing upstream bugs. Each fix must be recorded in DESIGN.md and
   must keep an upstream-compatible flag.
-* After changes to shared code (`Agitate/{Args,Bitset,Header,Index,Preresolved,Refs,Reserved}.lean`), to
+* After changes to shared code (`Agitate/{Args,Bitset,Header,Index,Preresolved,Refs,Reserved}.lean`,
+  `Percolate/Bitset.lean`), to
   `Agitate/NonModule.lean`, or to `modulate` (conversion code in `Agitate/Shake.lean`), run `scripts/test-fixture-nonmodule.sh` and
   `scripts/test-batteries-nonmodule.sh <mathlib4>/.lake/packages/batteries`.
+* After changes to `Percolate/` or `Agitate/Deps/`, run `scripts/test-percolate.sh
+  <mathlib4>/.lake/packages/importGraph` and `scripts/test-deps.sh`. Keep `Percolate` free of
+  `Agitate` imports, so that it can move upstream (Thomas).
 * After changes to module resolution (`Agitate/Workspace.lean`, `Agitate/Args.lean`), also run
   `scripts/test-require.sh`.
 * After any change to the analysis, run `scripts/test-fixture.sh`, `scripts/compare-core.sh` and
@@ -54,3 +58,11 @@
   under `lake env` once still passed through `LEAN_PATH` after module resolution had moved to the
   Lake workspace. Run the checker directly, not under `lake env`.
 * `--profile` serialises phases, so its total exceeds the normal wall time.
+* Pure `let`s in `IO` code can be moved past `IO.monoMsNow`, so a phase can time as 0 ms while its
+  work lands in the next phase. Time pure work through `IO.lazyPure`, and wait for tasks with
+  `IO.wait`, not `Task.get`.
+* `lake env lean --run` cannot run code that reads the index: the interpreter hits the
+  `implemented_by` `unsafeCast` paths (`LEAN ASSERTION VIOLATION … unreachable`). Debug with the
+  compiled binaries.
+* Auxiliary lemmas are private (`_private.M.0.foo._simp_1`) even when `foo` is public, so walking
+  name prefixes from them never reaches `foo` without `privateToUserName`.

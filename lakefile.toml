@@ -1,10 +1,18 @@
 name = "agitate"
 version = "0.1.0"
 license = "Apache-2.0"
-defaultTargets = ["agitate", "agitate-nonmodule", "modulate", "agitate-check"]
+defaultTargets = ["agitate", "agitate-nonmodule", "modulate", "agitate-check", "agitate-deps"]
 
 [[lean_lib]]
 name = "Agitate"
+
+# Dependency graphs at scale; depends only on Lean, so that it can move upstream (Percolate.lean).
+[[lean_lib]]
+name = "Percolate"
+
+# `#guard` tests of Percolate, run by `scripts/test-percolate.sh` (not a default target).
+[[lean_lib]]
+name = "PercolateTest"
 
 [[lean_exe]]
 name = "agitate"
@@ -28,4 +36,10 @@ supportInterpreter = true
 [[lean_exe]]
 name = "modulate"
 root = "ModulateMain"
+supportInterpreter = true
+
+# Which source declarations of a project given declarations need (see Agitate/Deps/Main.lean).
+[[lean_exe]]
+name = "agitate-deps"
+root = "DepsMain"
 supportInterpreter = true

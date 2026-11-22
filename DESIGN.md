@@ -36,6 +36,12 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | Start from a verbatim copy of `Lake/CLI/Shake.lean` and replace its phases one at a time, checking parity after each. | Claude | done; the analysis logic in `Agitate/Shake.lean` is still upstream's apart from the marked changes |
 | Skip the `.ir`/`.ir.sig` parts (shake loads them only for `extraConstNames`, compiler auxiliary names that kernel terms never mention). | Claude | verified: `agitate-check` agrees with `getModuleIdxFor?` on every constant, and outputs are identical on core, Batteries and Mathlib |
 | Same CLI flags as `lake shake`; modules are passed explicitly for now. | Claude | open |
+| `agitate-deps`: for given seed declarations, the project's source items they need, as JSON Lines for a tool that deletes the rest; a separate executable; `--scope` globs select the reported modules. | Thomas (feature, separate executable, globs, deletion tool as consumer); Claude (design) | implemented |
+| Needs are what deleting source would break, not kernel references: regeneration counts (a reserved name needs its base) and every recorded need counts ("we really want to record the needs", Thomas). | Thomas | implemented |
+| Report source items: maximal full declaration ranges, nested ranges merged, with their ranges ("the range information is in fact necessary", Thomas). Internal names are walked through and left out of the output. | Thomas (ranges, filtering); Claude (merging nested ranges) | implemented |
+| Port ImportGraph's traversals instead of depending on ImportGraph, into a library that depends only on Lean (`Percolate`, so that it can move upstream); `agitate-deps`'s own parts stay in `Agitate/Deps`. `Bitset` moved into `Percolate`. | Thomas (port, factoring, the name: "Let's call it Percolate", applied to the library by Claude); Claude (structure, which parts are upstreamable, moving `Bitset`) | implemented |
+| Uses that Lean records only per module, or not at all, give two weaker statuses (`candidate`, `moduleUse`) rather than one coarse flag. | Claude | implemented; open |
+| JSON Lines, with records written one at a time, rather than one `Json` value. | Claude (agreed by Thomas) | implemented |
 
 ## Results
 
@@ -633,6 +639,112 @@ same sections, which keeps every import and makes it public, served as the compa
   mixing meta and non-meta code. Lake skips dependents of failed modules, so these are lower
   bounds.
 
+## Declaration needs: `agitate-deps`
+
+**The question.** Thomas: "how could we change the repo source and still have it work out", "namely
+how could we prune declarations". So the graph is over *source items*, the spans that
+deleting a declaration removes, and its edges are whatever deleting the source would break.
+Claude first proposed kernel-level dependency. Thomas disagreed ("I'm not sure I agree re: ignoring
+regeneration"): an equation lemma is not in the source, while the definition it is regenerated from
+is.
+
+**Items** (`Agitate/Deps/Items.lean`). `declRangeExt` stores a range for each declaration written
+in the source. Its entries are in `.olean.server` and `.olean.private`, not in `.olean`
+(`Lean/DeclarationRange.lean`), so the index's private part has them. Elaborators also give
+generated declarations the range of the syntax that made them: constructors
+(`Lean/Elab/Inductive.lean:81`), structure fields (`Lean/Elab/Structure.lean:454`), `let rec` and
+`where` helpers (`Lean/Elab/LetRec.lean:63`), `deriving` instances
+(`Lean/Elab/Deriving/Basic.lean:272`) and `@[ext]` lemmas (`Lean/Elab/Tactic/Ext.lean:128`). Merging
+nested ranges therefore groups exactly what cannot be deleted separately. The range is the full one,
+docstring and attributes included (checked on the fixture). A constant without a range maps to its
+parent: the reserved-name base, else the name's prefix. That parent can be in another module, as for
+an equation lemma realised downstream. *Found on Mathlib:* auxiliary lemmas such as `foo._simp_1_3`
+are private (`_private.M.0.foo._simp_1_3`) even when `foo` is public, so a private prefix that is not
+a constant stands for its public name. Before that fix, 69 413 of 332 993 Mathlib items were
+unranged. After it, 1 613 of 265 193 are, mostly `_auto` (742) and realised equation lemmas whose
+base has no range (open, TODO).
+
+**Needs** (`Agitate/Deps/Needs.lean`). An item needs what its constants need: the constants in
+their types and values; for an inductive its constructors and for a recursor its mutual block (as
+`ConstantInfo.getUsedConstantsAsSet`); `@[implemented_by]` targets; and names preresolved in
+quotations. References are resolved with `resolveRef`/`Resolved.forModule`, so reserved names count
+as their base, and a duplicated theorem as the copy the module saw. Mutual inductives make the item
+graph cyclic, hence strongly connected components (`Percolate`).
+
+**Unrecorded uses.** `ExtraModUse` stores `{module, isExported, isMeta}` only.
+`recordExtraModUseFromDecl` receives the used declaration but passes it to `recordExtraModUseCore`
+only as a trace hint (`Lean/ExtraModUses.lean:56-63, 87-93, 111-118`). Uses inside a module record
+nothing at all, since `getModuleIdxFor?` is `none` there. A first version (Claude) treated every
+item of a used module as possibly needed. On the fixture, `seed2`'s `simp [double]` then marked
+every declaration of `Deps.Base`, used or not, because `simp` records the module of every lemma it
+used. Lean says why it records them (`recordSimpUses`, `Lean/Meta/Tactic/Simp/Main.lean:735-743`):
+"For `rfl` theorems and simprocs, there might not be an explicit reference in the proof term". So
+the result has three levels (Claude, open to revisiting):
+* `needed`: recorded needs between declarations;
+* `candidate`: also the declarations such a use can name without leaving a term:
+  * for a meta use, metaprograms (meta, or a type mentioning `Lean`, which covers non-module code
+    and simprocs; a heuristic that errs towards keeping);
+  * for a non-meta use, rfl theorems (`@[backward_defeq]`, a superset of `@[defeq]`) as well;
+  * inside a module, both, of the module itself.
+* `moduleUse`: any item of a used module. This covers the other recorders of non-meta uses
+  (coercions, docstrings, delaborators, the deprecation linter, …), whose declarations usually
+  also appear in terms.
+
+The fixture test pins this down. Deleting `unused`, and then `moduleUse` as well, still builds, and
+a second run reports neither status. Deleting `candidate` as well does not build: there the
+notation, the local macros and the rfl lemma used by `dsimp` are all needed. The real fix is in
+Lean: store the hint, and the using declaration (TODO).
+
+**Boundaries.** The walk stops at the root package (`Package.isLocalModule`): dependency packages
+cannot import it. `--scope` globs only filter the output, since a needed item outside them can need
+one inside. Only modules in the seeds' import closure can contain needed items, so needs are computed
+for those modules only, in parallel per module.
+
+**Output.** JSON Lines, one `ToJson`-derived record per item, written as computed. A record's
+statuses are known only after percolation, so nothing can be streamed earlier. A single `Json`
+value would hold a `Std.TreeMap.Raw String Json` of all items and then one huge string
+(`Lean/Data/Json/Basic.lean:186`, `Printer.lean:167`).
+
+**Measurements.** Mathlib `v4.33.1`, all of `Mathlib`, seeds `Real.pi_gt_three`,
+`fermatLastTheoremFour` and `ZMod.pow_card_sub_one_eq_one`. Two runs back to back (cold, then warm
+page cache):
+* wall time 8.9 s and 4.5 s; peak RSS 6.4 GB;
+* phases: `readModules` 2.4/1.2 s, `Index.build` 2.1/0.2 s, items 0.2 s, needs (2 245 modules in
+  the closure) 0.6–0.7 s, graph assembly 0.09 s, percolation (three levels) 0.25 s, output 1.2–1.3 s
+  (117 MB);
+* result: 9 490 needed, 26 046 candidate, 50 750 moduleUse and 178 907 unused items, out of 265 193.
+
+## `Percolate`
+
+**Scope (Thomas, "nicely factored so that upstreamable bits are upstreamable, and adapted bits to
+our purposes are not baked into our project").** `Percolate/` imports only Lean. It holds:
+* the graph algorithms: `Graph.explore`, `Graph.components` (Tarjan), `Graph.flowForward` and
+  `Graph.flowBackward`;
+* `Bitset`, which moved from `Agitate` (`Agitate.Bitset` is now an alias);
+* `Percolate.Environment`, ImportGraph's `transitivelyUsedConstants` and
+  `transitivelyRequiredModules'` re-expressed with these.
+
+Everything about items, `Index` or the CLI is in `Agitate/Deps`.
+
+**Port.** From ImportGraph (`ImportGraph/Imports/RequiredModules.lean` at `16f02aa`). Thomas
+suggested depending on it or adapting it. Depending on it was rejected (Claude): its functions need
+an `Environment` (`withImportModules`, `getConstInfo`), the load agitate exists to avoid. The
+changes, by Claude:
+* generic vertex and label types;
+* dense numbering with arrays, instead of `NameMap`/`NameSet` and `min!`/`erase` per step;
+* `Bitset` instead of `BitVec N`, which is a `Nat` (the B1 cost);
+* SCCs, because item graphs have cycles. Core's `Lean.SCC.scc` recurses, and ImportGraph notes that
+  recursion overflows on Mathlib.
+
+**Verified.** On the same environment, `tests/percolate/VsImportGraph.lean` gives identical results
+for `transitivelyRequiredModules` on 38 modules (ImportGraph's, `Percolate`'s and `Lean.Util.*`)
+and for `transitivelyUsedConstants` from four constants (47 to 7 036 constants each).
+`PercolateTest.lean` covers cycles, both flows, discovery, and a 100 000-vertex chain without stack
+overflow. On a 1M-vertex chain in the interpreter, all three traversals scale linearly (2.5 s,
+4.7 s and 3.4 s at 1M). *Pitfall found while testing:* labelling every vertex `v` with `{v}`
+makes bitsets of `v/8` bytes, which is quadratic in space. Seeds are few, so `agitate-deps` does
+not hit this.
+
 ## Rejected / deferred
 
 * **Assembling a real `Environment` from `readModuleData` output in order to call core's
@@ -655,3 +767,7 @@ same sections, which keeps every import and makes it public, served as the compa
   in the macro's own module covers non-module code completely, because imports re-export.
 * **Native (C) bitset helpers via `extern`.** Deferred. The `ByteArray` bitset brought the loop
   from 82 s to 2.7 s; revisit if the loop matters again.
+* **Depending on ImportGraph for `agitate-deps` (Thomas: "depend on or adapt").** Rejected in
+  favour of a port (`Percolate`): ImportGraph's functions take an `Environment`.
+* **One coarse "unattributed" status for module-level uses (Claude).** Replaced by `candidate`
+  and `moduleUse`: on the fixture it marked every declaration of a module used once by `simp`.

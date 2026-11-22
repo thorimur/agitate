@@ -35,3 +35,19 @@
 * Later: per-module needs cache keyed by olean hash (incremental runs). `resolveRef` is a pure
   function of the referenced name and the index, which makes this straightforward apart from the
   `transDeps` filter on indirect uses.
+* `agitate-deps`: a `why` per needed item (one predecessor towards a seed, like `--explain`).
+* `agitate-deps`: the remaining unranged items on Mathlib (1 613, mostly `_auto` and realised
+  equation lemmas whose base has no range; DESIGN.md, "Declaration needs").
+* `agitate-deps`: ranges of `attribute [kind] decl` commands are not in the oleans; the deletion
+  tool has to find them in the source (the records name module, kind and declaration).
+* `agitate-deps`: validate on Mathlib by deleting the `unused` (and `moduleUse`) items for some
+  seeds and building. That takes hours of machine time, so ask Thomas first.
+* Unrecorded uses: propose the Lean-side fix, i.e. keep the declaration that
+  `recordExtraModUseFromDecl` already receives, and the using declaration (DESIGN.md, "Declaration
+  needs"). It would replace the `candidate` and `moduleUse` approximations. Ask Thomas before
+  reporting anything upstream.
+* `Percolate`: propose it to ImportGraph (ask Thomas first). Before that, measure ImportGraph's
+  `transitivelyRequiredModules'` against `Percolate.transitivelyRequiredModules` on Mathlib.
+* `agitate-deps`: confirm the executable's name. Thomas's "Let's call it Percolate" was applied to
+  the library; the executable may be meant instead.
+
