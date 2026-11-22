@@ -39,7 +39,8 @@ way. Upstream sources cited below are at tag `v4.33.1` of `leanprover/lean4`.
 | `percolate`: for given seed declarations, the project's source items they need, as JSON Lines for a tool that deletes the rest; a separate executable; `--scope` globs select the reported modules. | Thomas (feature, separate executable, globs, deletion tool as consumer); Claude (design) | implemented |
 | Needs are what deleting source would break, not kernel references: regeneration counts (a reserved name needs its base) and every recorded need counts ("we really want to record the needs", Thomas). | Thomas | implemented |
 | Report source items: maximal full declaration ranges, nested ranges merged, with their ranges ("the range information is in fact necessary", Thomas). Internal names are walked through and left out of the output. | Thomas (ranges, filtering); Claude (merging nested ranges) | implemented |
-| Port ImportGraph's traversals instead of depending on ImportGraph. The upstreamable part depends only on Lean (`Agitate/ImportGraph`, namespace `Agitate.ImportGraph`, so that upstreaming drops the prefix); the feature is `Agitate/Percolate`, with the executable `percolate`. `Bitset` moved into `Agitate.ImportGraph`. | Thomas (port, factoring, layout and names); Claude (which parts are upstreamable, the namespace, moving `Bitset`) | implemented |
+| The upstreamable part depends only on Lean (`Agitate/ImportGraph`, namespace `Agitate.ImportGraph`, so that upstreaming drops the prefix); the feature is `Agitate/Percolate`, with the executable `percolate`. `Bitset` moved into `Agitate.ImportGraph`. | Thomas (factoring, layout and names); Claude (which parts are upstreamable, the namespace, moving `Bitset`) | implemented |
+| Remove the port of ImportGraph's `RequiredModules` (it was the wrong code: Thomas meant `ImportGraph/Shake/` and `WorkspaceModel/` at upstream `HEAD`). Revisit how agitate and `percolate` relate to those. | Thomas | removed; relation open |
 | Uses that Lean records only per module, or not at all, give two weaker statuses (`candidate`, `moduleUse`) rather than one coarse flag. | Claude | implemented; open |
 | JSON Lines, with records written one at a time, rather than one `Json` value. | Claude (agreed by Thomas) | implemented |
 
@@ -718,40 +719,45 @@ page cache):
 
 **Scope (Thomas, "nicely factored so that upstreamable bits are upstreamable, and adapted bits to
 our purposes are not baked into our project").** `Agitate/ImportGraph/` imports only Lean, never
-the rest of agitate. It holds:
-* the graph algorithms: `Graph.explore`, `Graph.components` (Tarjan), `Graph.flowForward` and
-  `Graph.flowBackward`;
-* `Bitset`, which moved from `Agitate` (`Agitate.Bitset` is now an alias);
-* `Agitate.ImportGraph.Environment`, ImportGraph's `transitivelyUsedConstants` and
-  `transitivelyRequiredModules'` re-expressed with these.
-
-Everything about items, `Index` or the CLI is in `Agitate/Percolate`.
+the rest of agitate. It holds what `percolate` needs and might be useful upstream:
+`Graph.components`, an iterative Tarjan (item graphs are cyclic because of mutual inductives, and
+core's `Lean.SCC.scc` recurses, which overflows on Mathlib-sized graphs); `Graph.flowForward`,
+which propagates labels over the components; and `Bitset`, which moved from `Agitate`
+(`Agitate.Bitset` is now an alias). Everything about items, `Index` or the CLI is in
+`Agitate/Percolate`. How this relates to upstream ImportGraph is open: see "ImportGraph at `HEAD`"
+below.
 
 **Layout and names.** The first version was a separate library, `Percolate`, after Thomas's "Let's
 call it Percolate", which Claude applied to the library. Then Thomas: "We should structure this as
 Agitate/ImportGraph for the upstreamable content, and Agitate/Percolate and `percolate` for the
 functionality here and the executable." The namespace `Agitate.ImportGraph` (Claude) cannot clash
-with ImportGraph's own declarations when both are loaded, as in the differential test, and
-upstreaming drops the prefix.
+with ImportGraph's own declarations when both are loaded, and upstreaming drops the prefix.
 
-**Port.** From ImportGraph (`ImportGraph/Imports/RequiredModules.lean` at `16f02aa`). Thomas
-suggested depending on it or adapting it. Depending on it was rejected (Claude): its functions need
-an `Environment` (`withImportModules`, `getConstInfo`), the load agitate exists to avoid. The
-changes, by Claude:
-* generic vertex and label types;
-* dense numbering with arrays, instead of `NameMap`/`NameSet` and `min!`/`erase` per step;
-* `Bitset` instead of `BitVec N`, which is a `Nat` (the B1 cost);
-* SCCs, because item graphs have cycles. Core's `Lean.SCC.scc` recurses, and ImportGraph notes that
-  recursion overflows on Mathlib.
+**Removed: a port of `RequiredModules`.** Asked to "depend on or adapt ImportGraph tooling"
+(Thomas), Claude read the ImportGraph that Mathlib `v4.33.1` pins (`16f02aa`, 2026-08-10). Its
+only constant-dependency code was `ImportGraph/Imports/RequiredModules.lean`, so Claude ported that
+(`transitivelyUsedConstants`, `transitivelyRequiredModules'`) and verified the port against it.
+Thomas had meant his newer `ImportGraph/Shake/` and `ImportGraph/WorkspaceModel/` work at upstream
+`HEAD` (`b9ec7f6`, 2026-11-20), which that commit predates ("Absolutely, I did not want you to port
+RequiredModules"). The port, its differential test and the traversals only it used
+(`Graph.explore`, `Graph.flowBackward`) are gone. *Lesson:* read a dependency at upstream `HEAD`
+before porting from it, not only at the version a downstream project pins.
 
-**Verified.** On the same environment, `tests/importgraph/VsImportGraph.lean` gives identical results
-for `transitivelyRequiredModules` on 38 modules (ImportGraph's, `Agitate.ImportGraph`'s and `Lean.Util.*`)
-and for `transitivelyUsedConstants` from four constants (47 to 7 036 constants each).
-`AgitateTest/ImportGraph.lean` covers cycles, both flows, discovery, and a 100 000-vertex chain without stack
-overflow. On a 1M-vertex chain in the interpreter, all three traversals scale linearly (2.5 s,
-4.7 s and 3.4 s at 1M). *Pitfall found while testing:* labelling every vertex `v` with `{v}`
-makes bitsets of `v/8` bytes, which is quadratic in space. Seeds are few, so `percolate` does
-not hit this.
+**`Bitset` against `Nat`.** Lake's shake and ImportGraph's `ImportGraph.Shake.Bitset`
+(`ImportGraph/Shake/Core.lean:41-42` at `HEAD`) use a `Nat`. Measured, compiled, on 20 000 sets of
+30 elements over 10 000 indices (two runs): singleton `insert` 7–8 ms against 246–330 ms (`Nat`:
+`||| (1 <<< i)`); membership of every index for 200 sets 5–6 ms against 633–800 ms (`Nat.testBit`);
+but union into an accumulator 27–67 ms against 5–17 ms, and union with a large shared set 47–115 ms
+against 5–10 ms. `Bitset.union` loops over bytes in Lean, while `Nat.lor` is GMP's word-wise
+`lean_nat_big_lor` (`lean.h:1648-1652`). So the `ByteArray` bitset is not better across the board.
+An earlier version of this record said it was (Claude, unmeasured). A word-wise union would
+likely close the gap (TODO).
+
+**Tests.** `AgitateTest/ImportGraph.lean` covers cycles, the forward flow, and a 100 000-vertex
+chain without stack overflow. On a 1M-vertex chain in the interpreter, components and the forward
+flow scale linearly (2.5 s and 4.7 s at 1M). *Pitfall found while testing:* labelling every vertex
+`v` with `{v}` makes bitsets of `v/8` bytes, which is quadratic in space. Seeds are few, so
+`percolate` does not hit this.
 
 ## Rejected / deferred
 
@@ -775,7 +781,8 @@ not hit this.
   in the macro's own module covers non-module code completely, because imports re-export.
 * **Native (C) bitset helpers via `extern`.** Deferred. The `ByteArray` bitset brought the loop
   from 82 s to 2.7 s; revisit if the loop matters again.
-* **Depending on ImportGraph for `percolate` (Thomas: "depend on or adapt").** Rejected in
-  favour of a port (`Agitate.ImportGraph`): ImportGraph's functions take an `Environment`.
+* **Porting ImportGraph's `RequiredModules` for `percolate` (Claude).** Done, then removed: Thomas
+  meant ImportGraph's newer `Shake/` and `WorkspaceModel/` code (see "`Agitate.ImportGraph`").
+  Depending on or adapting that code is open.
 * **One coarse "unattributed" status for module-level uses (Claude).** Replaced by `candidate`
   and `moduleUse`: on the fixture it marked every declaration of a module used once by `simp`.

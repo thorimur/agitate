@@ -9,8 +9,8 @@
   `Agitate/ImportGraph/Bitset.lean`), to
   `Agitate/NonModule.lean`, or to `modulate` (conversion code in `Agitate/Shake.lean`), run `scripts/test-fixture-nonmodule.sh` and
   `scripts/test-batteries-nonmodule.sh <mathlib4>/.lake/packages/batteries`.
-* After changes to `Agitate/ImportGraph/` or `Agitate/Percolate/`, run `scripts/test-importgraph.sh
-  <mathlib4>/.lake/packages/importGraph` and `scripts/test-percolate.sh`. `Agitate/ImportGraph/`
+* After changes to `Agitate/ImportGraph/` or `Agitate/Percolate/`, run `scripts/test-importgraph.sh` and
+  `scripts/test-percolate.sh`. `Agitate/ImportGraph/`
   imports nothing else from agitate, so that it can move upstream (Thomas).
 * After changes to module resolution (`Agitate/Workspace.lean`, `Agitate/Args.lean`), also run
   `scripts/test-require.sh`.
@@ -66,3 +66,6 @@
   compiled binaries.
 * Auxiliary lemmas are private (`_private.M.0.foo._simp_1`) even when `foo` is public, so walking
   name prefixes from them never reaches `foo` without `privateToUserName`.
+* When Thomas points at another project's tooling (ImportGraph, Lake, …), read it at upstream `HEAD`.
+  The copy a downstream project pins (e.g. Mathlib's `.lake/packages`) can predate the code he means:
+  a port of ImportGraph's old `RequiredModules` had to be removed for this reason.

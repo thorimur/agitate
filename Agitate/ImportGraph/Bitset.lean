@@ -17,10 +17,13 @@ A set of small naturals (usually module indices), packed eight per byte.
 Changed from Lake's `shake` (`Lake/CLI/Shake.lean`, Lean `v4.33.1`), which uses a `Nat` here.
 There `has` is `Nat.testBit`, i.e. `1 &&& (m >>> i)`, which copies the whole bignum on every
 membership test, and every `∪ {j}` allocates the singleton `1 <<< j`. That made the sequential
-`visitModule` loop dominate shake's runtime (agitate's DESIGN.md, B1). ImportGraph's `BitVec N`
-module sets are `Nat`s as well. Here `has` is O(1), and `insert`, `∪`, `∩` and `\` update the left
-operand in place when it is uniquely referenced. Sets may have different byte lengths; missing
-bytes are zero.
+`visitModule` loop dominate shake's runtime (agitate's DESIGN.md, B1). Here `has` is O(1), and
+`insert`, `∪`, `∩` and `\` update the left operand in place when it is uniquely referenced. Sets
+may have different byte lengths; missing bytes are zero.
+
+The trade-off, measured against `Nat` (compiled; 20 000 sets of 30 elements over 10 000 indices):
+`insert` and `has` are 30–100× faster, but `∪` is 3–20× slower, since it loops over bytes in Lean
+while `Nat.lor` works on words in C (agitate's DESIGN.md, "`Agitate.ImportGraph`").
 -/
 structure Bitset where
   bytes : ByteArray

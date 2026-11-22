@@ -157,16 +157,13 @@ there is one line per item of the project's loaded modules, in module order and 
 Commands that declare nothing (`open`, `variable`, `example`, …) leave no trace in the oleans and
 are the deletion tool's business. `scripts/delete-items.py` is a minimal reference consumer.
 
-## The upstreamable graph library: `Agitate.ImportGraph`
+## Code for upstream: `Agitate.ImportGraph`
 
 `Agitate/ImportGraph/` depends only on Lean, so that it can move upstream to ImportGraph by
 dropping the `Agitate.` prefix from its module and namespace names. It holds:
-* dense dependency graphs, built with breadth-first discovery (`Graph.explore`);
 * strongly connected components, by an iterative Tarjan with no recursion (`Graph.components`);
-* label propagation along edges or against them (`Graph.flowForward`, `Graph.flowBackward`);
-* `Agitate.ImportGraph.Bitset`;
-* ImportGraph's `transitivelyUsedConstants` and `transitivelyRequiredModules'` re-expressed with
-  these (`Agitate.ImportGraph.Environment`).
+* label propagation along the edges, over the components (`Graph.flowForward`);
+* `Agitate.ImportGraph.Bitset`, the `ByteArray` bitset that agitate uses throughout.
 
 `percolate` uses it.
 
@@ -194,8 +191,7 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
 * `AgitateCheck.lean`: `agitate-check`, the differential checker for the index (below).
 * `tests/fixture`, `tests/fixture-nonmodule`, `tests/fixture-percolate`: small workspaces whose
   modules each exercise one behaviour (comments say which). `tests/fixture-nonmodule.expected` and
-  `tests/fixture-percolate.expected` hold golden outputs. `tests/importgraph/` holds the comparison
-  with ImportGraph.
+  `tests/fixture-percolate.expected` hold golden outputs.
 * `scripts/`: the checks below, and `indirect-kinds.sh` (measures how much each indirect-use kind
   changes the suggestions) with its helper `diff-suggestions.py`.
 
@@ -230,9 +226,8 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
   * deleting the `unused` items, then also the `moduleUse` ones (`scripts/delete-items.py`), must
     leave a fixture that builds, and a second run must report neither status;
   * deleting the `candidate` items as well must not build.
-* `scripts/test-importgraph.sh [<importGraph-dir>]` builds `AgitateTest.ImportGraph` (its `#guard`s). Given an
-  ImportGraph build with this toolchain (e.g. `<mathlib4>/.lake/packages/importGraph`), it also
-  checks that `Agitate.ImportGraph.Environment` agrees with ImportGraph's own functions.
+* `scripts/test-importgraph.sh` builds `AgitateTest.ImportGraph`, whose `#guard`s test
+  `Agitate.ImportGraph`.
 * `.lake/build/bin/agitate-check <MODULE>...` (run in the workspace) compares every index query with core's answer
   on an environment loaded the way `lake shake` loads it, for every imported constant.
 
@@ -240,5 +235,4 @@ dropping the `Agitate.` prefix from its module and namespace names. It holds:
 
 Apache 2.0; see `LICENSE`. Parts are copied or ported from Lean 4 (also Apache 2.0): the analysis
 from Lake's `shake` (`Lake/CLI/Shake.lean`), the olean index and reserved-name predicates from
-Lean core. `Agitate.ImportGraph`'s traversals are ported from ImportGraph (Apache 2.0). Those files keep the
-original copyright notices and describe their changes.
+Lean core. Those files keep the original copyright notices and describe their changes.

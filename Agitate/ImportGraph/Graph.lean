@@ -1,35 +1,19 @@
 /-
-Copyright (c) 2023 Kim Morrison. All rights reserved.
 Copyright (c) 2026 Thomas Murrills. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
-Authors: Kim Morrison, Thomas Murrills
+Authors: Thomas Murrills
 -/
 
 /-
 # Dependency graphs at scale
 
-Reachability and label propagation over large dependency graphs (all constants of Mathlib, say),
-without recursion and without per-step tree-map operations.
-
-Ported from ImportGraph (`ImportGraph/Imports/RequiredModules.lean`,
-leanprover-community/import-graph at `16f02aa`): the worklist of
-`NameSet.transitivelyUsedConstants` (here `Graph.explore`) and the explicit-stack, memoised
-traversal of `Environment.transitivelyRequiredModules'` (here `Graph.flowBackward`). Changes:
-* generic in the vertex type and in the label type (any `Union`, e.g. `Agitate.ImportGraph.Bitset`)
-  instead of `Name` and `BitVec N`;
-* vertices are numbered densely, so the traversals use arrays instead of `NameMap`/`NameSet`, and
-  discovery uses a `Std.HashMap` instead of `NameSet.min!`/`erase` per step;
-* cycles are allowed: labels propagate over strongly connected components (an iterative Tarjan),
-  since graphs derived from constants, such as source declarations, can be cyclic (mutual
-  inductives). Core's `Lean.SCC.scc` recurses, which overflows the stack at this scale (as
-  ImportGraph notes for its own traversal);
-* labels can also flow forwards, from users to what they use (`Graph.flowForward`).
-
-`Agitate.ImportGraph.Environment` re-expresses ImportGraph's functions with these.
+Label propagation over large dependency graphs (all source declarations of Mathlib, say), without
+recursion and without per-step tree-map operations. Vertices are numbered densely, so traversals
+use arrays. Graphs may be cyclic (mutual inductives make declaration graphs so): labels propagate
+over strongly connected components, found by an iterative Tarjan. Core's `Lean.SCC.scc` recurses,
+which overflows the stack at this scale.
 -/
 module
-
-public import Std.Data.HashMap.Basic
 
 public section
 
@@ -43,41 +27,6 @@ deriving Inhabited
 namespace Graph
 
 def size (g : Graph) : Nat := g.succs.size
-
-/-- The part of a graph reachable from some roots, with its vertices numbered densely. -/
-structure Explored (α : Type) [BEq α] [Hashable α] where
-  verts : Array α
-  /-- The inverse of `verts`. -/
-  index : Std.HashMap α Nat
-  graph : Graph
-
-/--
-The vertices reachable from `roots` along `succ`, numbered densely in breadth-first discovery
-order (the distinct roots first), with the graph between them. `succ` is called once per vertex;
-repeated successors are kept as repeated edges, which none of the traversals below mind.
--/
-def explore {α : Type} [BEq α] [Hashable α] (roots : Array α) (succ : α → Array α) :
-    Explored α := Id.run do
-  let mut index : Std.HashMap α Nat := {}
-  let mut verts : Array α := #[]
-  for r in roots do
-    if !index.contains r then
-      index := index.insert r verts.size
-      verts := verts.push r
-  let mut succs : Array (Array Nat) := #[]
-  -- `verts` is also the queue: `succs.size` is the next vertex to expand
-  while succs.size < verts.size do
-    let mut out := #[]
-    let some v := verts[succs.size]? | break
-    for w in succ v do
-      match index[w]? with
-      | some j => out := out.push j
-      | none =>
-        index := index.insert w verts.size
-        out := out.push verts.size
-        verts := verts.push w
-    succs := succs.push out
-  return { verts, index, graph := ⟨succs⟩ }
 
 /--
 The strongly connected components of the part of a graph reachable from some roots, in reverse
@@ -158,27 +107,6 @@ def flowForward (g : Graph) (roots : Array Nat) (init : Nat → σ) : Array σ :
       for w in g.succs[v]! do
         if cs.compOf[w]! != k + 1 then
           label := label.modify w (· ∪ acc)
-  return label
-
-/--
-Labels collected against the edges: for each vertex `v` reachable from `roots`, the union of
-`init w` over the vertices `w` that `v` reaches (`v` included). Unreached vertices get `∅`. This is
-ImportGraph's `transitivelyRequiredModules'` memo `c2m`, with `init v` the modules `v` uses.
--/
-def flowBackward (g : Graph) (roots : Array Nat) (init : Nat → σ) : Array σ := Id.run do
-  let cs := g.components roots
-  let mut label : Array σ := .replicate g.size ∅
-  -- sinks first: the order of `comps`
-  for k in 0...cs.comps.size do
-    let comp := cs.comps[k]!
-    let mut acc : σ := ∅
-    for v in comp do
-      acc := acc ∪ init v
-      for w in g.succs[v]! do
-        if cs.compOf[w]! != k + 1 then
-          acc := acc ∪ label[w]!
-    for v in comp do
-      label := label.set! v acc
   return label
 
 end Graph

@@ -46,7 +46,9 @@
   `recordExtraModUseFromDecl` already receives, and the using declaration (DESIGN.md, "Declaration
   needs"). It would replace the `candidate` and `moduleUse` approximations. Ask Thomas before
   reporting anything upstream.
-* `Agitate.ImportGraph`: propose it to ImportGraph (ask Thomas first). Before that, measure
-  ImportGraph's `transitivelyRequiredModules'` against `Agitate.ImportGraph.transitivelyRequiredModules`
-  on Mathlib.
+* Relate agitate and `percolate` to upstream ImportGraph's `Shake/` and `WorkspaceModel/` (at
+  `HEAD`, toolchain `v4.37.0-rc1`): read them fully, then propose to Thomas what to depend on,
+  adapt or contribute (DESIGN.md, "`Agitate.ImportGraph`").
+* `Bitset.union` (and `∩`, `\`): work on 8-byte words. Unions are 3–20× slower than `Nat.lor`
+  (DESIGN.md, "`Agitate.ImportGraph`"); measure before and after.
 
